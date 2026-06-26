@@ -1,0 +1,10 @@
+fastapi
+starlette
+uvicorn[standard]
+pydantic-settings
+redis
+SQLAlchemy
+requests
+psycopg2-binary
+psycopg2
+aiohttp
