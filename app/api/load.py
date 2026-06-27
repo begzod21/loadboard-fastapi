@@ -9,7 +9,7 @@ from ..filters.load import LoadFilter, load_filter_params
 from ..schemas.load import PaginatedLoads
 from ..services.load import LoadListParams, LoadListService
 
-router = APIRouter(prefix="/app/api/load", tags=["load"])
+router = APIRouter(prefix="/api/load", tags=["load"])
 
 
 @router.get("/list/", response_model=PaginatedLoads)
