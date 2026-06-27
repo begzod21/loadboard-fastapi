@@ -26,7 +26,7 @@ def _decode_user_id(authorization: str | None) -> int | None:
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret,
+            settings.SECRET_KEY,
             algorithms=[settings.jwt_algorithm],
         )
     except jwt.PyJWTError as exc:
