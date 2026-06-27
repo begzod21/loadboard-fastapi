@@ -63,11 +63,16 @@ class VehicleListParams:
 
 
 class VehicleListService:
-    def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        user: CurrentUser,
+        mapbox_token: str | None = None,
+    ) -> None:
         self.session = session
         self.user = user
         self.team_ids = user.team_ids
-        self.map_service = MapService()
+        self.map_service = MapService(mapbox_token)
 
     async def list(
         self, params: VehicleListParams, filters: VehicleFilter

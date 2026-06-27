@@ -34,7 +34,11 @@ async def list_vehicles(
         else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
     )
 
-    service = VehicleListService(session, user)
+    service = VehicleListService(
+        session,
+        user,
+        mapbox_token=request.state.tenant.mapbox_token,
+    )
     params = VehicleListParams(
         latitude=latitude,
         longitude=longitude,

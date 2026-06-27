@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import httpx
 
-from ..core.config import settings
-
 _GEOCODE_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json"
 
 
 class MapService:
     def __init__(self, token: str | None = None) -> None:
-        self.token = token or settings.mapbox_token
+        self.token = token
 
     async def get_coordinates(self, address: str) -> tuple[float | None, float | None]:
         """Return ``(longitude, latitude)`` for an address, or ``(None, None)``."""
