@@ -22,6 +22,7 @@ async def list_loads(
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedLoads:
+    print(user)
     tenant_cargo_distance = request.state.tenant.cargo_distance
     resolved_cargo_distance = (
         cargo_distance
