@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from app.core.database import engine, close_db
+from app.core.database import engine, close_db, warmup
 from app.middleware import tenant_middleware, GZipMiddleware, CORSMiddleware
 
 from app.api import load_router, vehicle_router
@@ -9,8 +9,8 @@ from app.api import load_router, vehicle_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🔌 Connecting to database...")
-    async with engine.begin() as conn:
-        print("✅ Database connected.")
+    await warmup()
+    print("✅ Database connected and pool warmed up.")
 
     yield
     await close_db()

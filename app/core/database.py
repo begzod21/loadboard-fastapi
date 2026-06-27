@@ -1,5 +1,8 @@
+import asyncio
+
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, configure_mappers
 
 from app.core.config import settings
 
@@ -18,6 +21,19 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
     autoflush=False
 )
+
+
+async def warmup(connections: int = 5) -> None:
+    """Pre-open DB connections and configure ORM mappers so the first
+    incoming request does not pay the cold-start cost."""
+    configure_mappers()
+
+    async def _open() -> None:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+
+    await asyncio.gather(*(_open() for _ in range(connections)))
+
 
 async def close_db():
     await engine.dispose()
