@@ -16,7 +16,7 @@ AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflash=False
+    autoflush=False
 )
 
 async def close_db():
