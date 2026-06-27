@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..core.security import CurrentUser
 from ..filters.load import LoadFilter
@@ -97,44 +96,30 @@ class LoadListService:
         count = await self.session.scalar(
             select(func.count()).select_from(Load).where(where)
         )
+        if not count:
+            return 0, []
 
-        cols = [Load.id, is_bid_col.label("is_bid"), is_driver_bid_col.label("is_driver_bid")]
+        cols = [Load, is_bid_col.label("is_bid"), is_driver_bid_col.label("is_driver_bid")]
         if is_read_col is not None:
             cols.append(is_read_col.label("is_read"))
 
-        ann_stmt = (
+        stmt = (
             select(*cols)
             .where(where)
             .order_by(Load.received_date.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
         )
-        rows = (await self.session.execute(ann_stmt)).mappings().all()
-        if not rows:
-            return int(count or 0), []
+        rows = (await self.session.execute(stmt)).unique().all()
 
-        load_ids = [row["id"] for row in rows]
-        loads = (
-            await self.session.scalars(
-                select(Load)
-                .where(Load.id.in_(load_ids))
-                .options(selectinload(Load.vehicle_teams))
+        results: list[LoadListSchema] = [
+            LoadListSchema.from_load(
+                row[0],
+                is_bid=row.is_bid,
+                is_driver_bid=row.is_driver_bid,
+                is_read=getattr(row, "is_read", False),
+                radius=cargo_distance,
             )
-        ).unique().all()
-        by_id = {load.id: load for load in loads}
-
-        results: list[LoadListSchema] = []
-        for row in rows:
-            load = by_id.get(row["id"])
-            if load is None:
-                continue
-            results.append(
-                LoadListSchema.from_load(
-                    load,
-                    is_bid=row.get("is_bid"),
-                    is_driver_bid=row.get("is_driver_bid"),
-                    is_read=row.get("is_read", False),
-                    radius=cargo_distance,
-                )
-            )
-        return int(count or 0), results
+            for row in rows
+        ]
+        return int(count), results
