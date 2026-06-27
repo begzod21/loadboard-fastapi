@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
 
-from fastapi import Depends, Header
+import jwt
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import get_tenant_db
 
 
@@ -13,38 +15,40 @@ class CurrentUser:
     user_id: int | None = None
 
 
+def _decode_user_id(authorization: str | None) -> int | None:
+    if not authorization:
+        return None
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
+
+    user_id = payload.get("user_id")
+    if user_id is None:
+        return None
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+
 async def get_current_user(
     session: AsyncSession = Depends(get_tenant_db),
-    x_team_ids: str | None = Header(default=None),
-    x_user_id: int | None = Header(default=None),
-    x_user_uuid: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ) -> CurrentUser:
+    user_id = _decode_user_id(authorization)
+
     team_ids: list[int] = []
-
-    if x_team_ids:
-        for part in x_team_ids.split(","):
-            part = part.strip()
-            if part.isdigit():
-                team_ids.append(int(part))
-
-    user_id = x_user_id
-    if user_id is None and x_user_uuid:
-        user_row = await session.execute(
-            text(
-                """
-                SELECT id
-                FROM user_user
-                WHERE uuid = :uuid
-                LIMIT 1
-                """
-            ),
-            {"uuid": x_user_uuid},
-        )
-        found = user_row.first()
-        if found:
-            user_id = int(found.id)
-
-    if user_id is not None and not team_ids:
+    if user_id is not None:
         rows = await session.execute(
             text(
                 """
