@@ -9,10 +9,10 @@ from ..filters.vehicle import VehicleFilter, vehicle_filter_params
 from ..schemas.vehicle import PaginatedVehicles
 from ..services.vehicle import VehicleListParams, VehicleListService
 
-router = APIRouter(prefix="/api/v1", tags=["vehicle"])
+router = APIRouter(prefix="/app/api", tags=["vehicle"])
 
 
-@router.get("/vehicle/", response_model=PaginatedVehicles)
+@router.get("/owner/vehicle/list/", response_model=PaginatedVehicles)
 async def list_vehicles(
     request: Request,
     latitude: float | None = Query(default=None, description="Latitude of the location"),
