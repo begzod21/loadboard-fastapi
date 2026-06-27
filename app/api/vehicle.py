@@ -22,7 +22,7 @@ async def list_vehicles(
     load_id: int | None = Query(default=None, description="ID of the load for location lookup"),
     bid_id: int | None = Query(default=None, description="ID of the bid for location lookup"),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=50, ge=1, le=100),
     filters: VehicleFilter = Depends(vehicle_filter_params),
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
