@@ -4,6 +4,7 @@ uvicorn[standard]
 pydantic-settings
 redis
 SQLAlchemy
+asyncpg
 requests
 psycopg2-binary
 psycopg2

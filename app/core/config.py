@@ -1,26 +1,23 @@
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-class DBSettings(BaseSettings):
+class DBSettings(BaseModel):
     DB_HOST: str
     DB_PORT: int
     DB_USER: str
     DB_PASSWORD: str
     DB_NAME: str
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
     @property
     def async_db_url(self) -> str:
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
     
 
-class RedisSettings(BaseSettings):
+class RedisSettings(BaseModel):
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int = 1
-    REDIS_PASSWORD: str
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    REDIS_PASSWORD: str | None = None
 
     @property
     def redis_url(self) -> str:
@@ -29,12 +26,43 @@ class RedisSettings(BaseSettings):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
     
 class Settings(BaseSettings):
-    db: DBSettings = DBSettings()
-    redis: RedisSettings = RedisSettings()
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
+
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_DB: int = 1
+    REDIS_PASSWORD: str | None = None
 
     tenant_table: str = "company_company"
-    mapbox_token: str
+    mapbox_token: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    @property
+    def db(self) -> DBSettings:
+        return DBSettings(
+            DB_HOST=self.DB_HOST,
+            DB_PORT=self.DB_PORT,
+            DB_USER=self.DB_USER,
+            DB_PASSWORD=self.DB_PASSWORD,
+            DB_NAME=self.DB_NAME,
+        )
+
+    @property
+    def redis(self) -> RedisSettings:
+        return RedisSettings(
+            REDIS_HOST=self.REDIS_HOST,
+            REDIS_PORT=self.REDIS_PORT,
+            REDIS_DB=self.REDIS_DB,
+            REDIS_PASSWORD=self.REDIS_PASSWORD,
+        )
 
 settings = Settings()
