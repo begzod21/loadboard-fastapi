@@ -38,10 +38,10 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: str | None = None
 
     tenant_table: str = "company_company"
-    mapbox_token: str = ""
+    MAPBOX_TOKEN: str = ""
     default_cargo_distance: float = -1
 
-    jwt_secret: str = ""
+    SECRET_KEY: str = ""
     jwt_algorithm: str = "HS256"
 
     model_config = SettingsConfigDict(
