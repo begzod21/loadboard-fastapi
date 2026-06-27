@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DBSettings(BaseSettings):
     DB_HOST: str
@@ -7,8 +7,7 @@ class DBSettings(BaseSettings):
     DB_PASSWORD: str
     DB_NAME: str
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def async_db_url(self) -> str:
@@ -21,8 +20,7 @@ class RedisSettings(BaseSettings):
     REDIS_DB: int = 1
     REDIS_PASSWORD: str
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def redis_url(self) -> str:
@@ -37,7 +35,6 @@ class Settings(BaseSettings):
     tenant_table: str = "company_company"
     mapbox_token: str
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
