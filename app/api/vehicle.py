@@ -55,6 +55,9 @@ async def list_vehicles(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     base_url = request.url
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        base_url = base_url.replace(scheme=forwarded_proto)
     has_next = page * page_size < count
     next_url = str(base_url.include_query_params(page=page + 1)) if has_next else None
     prev_url = str(base_url.include_query_params(page=page - 1)) if page > 1 else None
