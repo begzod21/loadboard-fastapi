@@ -9,7 +9,7 @@ from ..filters.vehicle import VehicleFilter, vehicle_filter_params
 from ..schemas.vehicle import PaginatedVehicles
 from ..services.vehicle import VehicleListParams, VehicleListService
 
-router = APIRouter(prefix="/app/api", tags=["vehicle"])
+router = APIRouter(prefix="/api/v1", tags=["vehicle"])
 
 
 @router.get("/vehicle/", response_model=PaginatedVehicles)
