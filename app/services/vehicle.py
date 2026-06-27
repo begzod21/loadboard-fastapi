@@ -27,7 +27,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..core.config import settings
 from ..core.security import CurrentUser
 from ..filters.vehicle import VehicleFilter
 from ..models.load import Bid, ConfirmedLoad, DriverBid, Load
@@ -106,7 +105,7 @@ class VehicleListService:
             vehicle_id = bid.vehicle_id
 
         if latitude is not None and longitude is not None:
-            radius = params.radius if params.radius is not None else settings.default_cargo_distance
+            radius = params.radius if params.radius is not None else -1
             return await self._distance_list(
                 float(latitude),
                 float(longitude),

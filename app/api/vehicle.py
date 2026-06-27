@@ -27,12 +27,19 @@ async def list_vehicles(
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedVehicles:
+    tenant_cargo_distance = request.state.tenant.cargo_distance
+    resolved_radius = (
+        radius
+        if radius is not None
+        else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
+    )
+
     service = VehicleListService(session, user)
     params = VehicleListParams(
         latitude=latitude,
         longitude=longitude,
         address=address,
-        radius=radius,
+        radius=resolved_radius,
         load_id=load_id,
         bid_id=bid_id,
         page=page,

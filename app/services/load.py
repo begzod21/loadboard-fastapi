@@ -7,7 +7,6 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..core.config import settings
 from ..core.security import CurrentUser
 from ..filters.load import LoadFilter
 from ..models.load import (
@@ -41,19 +40,17 @@ class LoadListService:
         cargo_distance = (
             params.cargo_distance
             if params.cargo_distance is not None
-            else settings.default_cargo_distance
+            else -1
         )
 
         clauses = [Load.is_active.is_(True), Load.is_deleted.is_(False)]
         if cargo_distance != -1:
             clauses.append(Load.nearest_vehicles_count > 0)
 
-        # Vehicle subquery scoped by team (used inside the bid EXISTS checks)
         vehicle_scope = [Vehicle.status == 1, Vehicle.registration_status == 4]
         if self.team_ids:
             vehicle_scope.append(Vehicle.team_id.in_(self.team_ids))
 
-        # Team scoping on loads
         if self.team_ids:
             has_team = exists(
                 select(load_vehicle_teams.c.id).where(
@@ -68,7 +65,6 @@ class LoadListService:
                 )
             )
 
-        # Annotation EXISTS expressions
         is_bid_col = exists(
             select(Bid.id)
             .join(Vehicle, Vehicle.id == Bid.vehicle_id)

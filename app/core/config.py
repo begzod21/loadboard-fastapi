@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     tenant_table: str = "company_company"
     mapbox_token: str = ""
+    default_cargo_distance: float = -1
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -22,8 +22,19 @@ async def list_loads(
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedLoads:
+    tenant_cargo_distance = request.state.tenant.cargo_distance
+    resolved_cargo_distance = (
+        cargo_distance
+        if cargo_distance is not None
+        else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
+    )
+
     service = LoadListService(session, user)
-    params = LoadListParams(cargo_distance=cargo_distance, page=page, page_size=page_size)
+    params = LoadListParams(
+        cargo_distance=resolved_cargo_distance,
+        page=page,
+        page_size=page_size,
+    )
     count, results = await service.list(params, filters)
 
     base_url = request.url
