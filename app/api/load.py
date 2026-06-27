@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.security import CurrentUser, get_current_user
+from ..core.dependencies import get_tenant_db
+from ..filters.load import LoadFilter, load_filter_params
+from ..schemas.load import PaginatedLoads
+from ..services.load import LoadListParams, LoadListService
+
+router = APIRouter(prefix="/app/api/load", tags=["load"])
+
+
+@router.get("/list/", response_model=PaginatedLoads)
+async def list_loads(
+    request: Request,
+    cargo_distance: float | None = Query(default=None, description="Override tenant cargo_distance"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    filters: LoadFilter = Depends(load_filter_params),
+    session: AsyncSession = Depends(get_tenant_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> PaginatedLoads:
+    service = LoadListService(session, user)
+    params = LoadListParams(cargo_distance=cargo_distance, page=page, page_size=page_size)
+    count, results = await service.list(params, filters)
+
+    base_url = request.url
+    has_next = page * page_size < count
+    next_url = str(base_url.include_query_params(page=page + 1)) if has_next else None
+    prev_url = str(base_url.include_query_params(page=page - 1)) if page > 1 else None
+
+    return PaginatedLoads(
+        count=count,
+        next=next_url,
+        previous=prev_url,
+        results=results,
+    )

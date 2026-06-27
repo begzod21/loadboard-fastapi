@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.core.database import engine, close_db
 from app.middleware import tenant_middleware, GZipMiddleware, CORSMiddleware
 
-from app.api import api_router
+from app.api import load_router, vehicle_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,4 +30,5 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(vehicle_router)
+app.include_router(load_router)
