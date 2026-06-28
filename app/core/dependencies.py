@@ -15,5 +15,5 @@ async def get_tenant_db(
 ) -> AsyncSession: # type: ignore
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            await session.execute(text(f"SET LOCAL search_path TO {tenant.schema_name}"))
+            await session.execute(text(f"SET search_path TO {tenant.schema_name}"))
             yield session
