@@ -111,6 +111,10 @@ class VehicleListService:
 
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
+            if not params.load_id and params.bid_id:
+                load_id = bid.load_id if bid else None
+            else:
+                load_id = params.load_id
             return await self._distance_list(
                 float(latitude),
                 float(longitude),
@@ -118,7 +122,7 @@ class VehicleListService:
                 vehicle_id,
                 driver_bid_vehicle_ids,
                 bool(params.bid_id),
-                params.load_id,
+                load_id,
                 params,
             )
 
@@ -162,11 +166,10 @@ class VehicleListService:
         params: VehicleListParams,
     ) -> tuple[int, list[VehicleSchema]]:
         effective_radius = 300 if radius == -1 else radius
-
         load_clause = [DriverBid.load_id == load_id] if load_id else []
         dbp = (
             select(DriverBid.driver_price)
-            .where(DriverBid.vehicle_id == Vehicle.id, *load_clause)
+            .where(DriverBid.vehicle_id == Vehicle.id, DriverBid.is_deleted.is_(False), *load_clause)
             .limit(1)
             .scalar_subquery()
         )
