@@ -132,6 +132,7 @@ class Bid(Base):
     driver_price: Mapped[float | None] = mapped_column(Float)
     broker_price: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class DriverBid(Base):
@@ -143,6 +144,7 @@ class DriverBid(Base):
     driver_price: Mapped[float | None] = mapped_column(Float)
     owner_bid: Mapped[bool] = mapped_column(Boolean, default=False)
     dispatch_bid_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -154,3 +156,4 @@ class ConfirmedLoad(Base):
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("owner_vehicle.id"))
     load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
     driver_price: Mapped[float | None] = mapped_column(Float)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
