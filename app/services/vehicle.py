@@ -335,6 +335,7 @@ class VehicleListService:
         stmt = select(DriverBid.vehicle_id).where(
             DriverBid.load_id == load_id,
             DriverBid.vehicle_id.is_not(None),
+            DriverBid.is_deleted.is_(False)
         )
         if self.team_ids:
             stmt = stmt.join(Vehicle, Vehicle.id == DriverBid.vehicle_id).where(
