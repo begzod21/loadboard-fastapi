@@ -64,6 +64,27 @@ class Load(Base):
 
     deliver_to_state: Mapped[str | None] = mapped_column(String(255))
     delivery_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    deliver_to_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    deliver_to_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+
+    pick_up_date_raw: Mapped[str | None] = mapped_column(String(255))
+    delivery_date_raw: Mapped[str | None] = mapped_column(String(255))
+    expire_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    expire_date_raw: Mapped[str | None] = mapped_column(String(255))
+    pieces: Mapped[int | None] = mapped_column(Integer)
+    weight: Mapped[int | None] = mapped_column(Integer)
+    dims: Mapped[str | None] = mapped_column(String(255))
+    stackable: Mapped[bool | None] = mapped_column(Boolean)
+    hazardous: Mapped[bool | None] = mapped_column(Boolean)
+    fast_load: Mapped[bool | None] = mapped_column(Boolean)
+    dock_level: Mapped[bool | None] = mapped_column(Boolean)
+    notes: Mapped[str | None] = mapped_column(String)
+    contact_email: Mapped[str | None] = mapped_column(String(255))
+    contact_phone: Mapped[str | None] = mapped_column(String(255))
+    contact_person: Mapped[str | None] = mapped_column(String(255))
+    posted_amount: Mapped[float | None] = mapped_column(Float)
+    order_number: Mapped[str | None] = mapped_column(String(255))
+    bid_link: Mapped[str | None] = mapped_column(String)
 
     miles_out: Mapped[int | None] = mapped_column(Integer, default=0)
     nearest_vehicles_count: Mapped[int | None] = mapped_column(Integer, default=0)
@@ -78,9 +99,27 @@ class Load(Base):
     )
 
     broker_company: Mapped[BrokerCompany | None] = relationship(lazy="joined")
-    vehicle_teams: Mapped[list["Team"]] = relationship(
+    vehicle_teams: Mapped[list["Team"]] = relationship(  # noqa: F821
         "Team", secondary=load_vehicle_teams, lazy="selectin"
     )
+    points: Mapped[list["LoadPoint"]] = relationship(
+        "LoadPoint", order_by="LoadPoint.order", lazy="selectin"
+    )
+
+
+class LoadPoint(Base):
+    __tablename__ = "load_loadpoint"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
+    type: Mapped[str | None] = mapped_column(String(10))
+    order: Mapped[int | None] = mapped_column(Integer)
+    address: Mapped[str | None] = mapped_column(String(255))
+    latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    state: Mapped[str | None] = mapped_column(String(255))
+    zip_code: Mapped[str | None] = mapped_column(String(20))
+    date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Bid(Base):
@@ -89,7 +128,9 @@ class Bid(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("owner_vehicle.id"))
+    dispatcher_id: Mapped[int | None] = mapped_column(Integer)
     driver_price: Mapped[float | None] = mapped_column(Float)
+    broker_price: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 

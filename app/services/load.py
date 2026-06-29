@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select, insert
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser
@@ -16,7 +17,7 @@ from ..models.load import (
     load_vehicle_teams,
 )
 from ..models.vehicle import Vehicle
-from ..schemas.load import LoadListSchema
+from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 
 
 @dataclass
@@ -123,3 +124,60 @@ class LoadListService:
             for row in rows
         ]
         return int(count), results
+
+class LoadDetailService:
+    def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
+        self.session = session
+        self.user = user
+
+    async def get(self, load_id: int) -> LoadDetailSchema | None:
+        load = await self.session.scalar(
+            select(Load)
+            .where(Load.id == load_id, Load.is_deleted.is_(False))
+            .options(selectinload(Load.points))
+        )
+        if load is None:
+            return None
+
+        bid_rows = (
+            await self.session.execute(
+                select(
+                    Bid.vehicle_id,
+                    Bid.created_at,
+                    Bid.driver_price,
+                    Bid.broker_price,
+                ).where(Bid.load_id == load.id)
+            )
+        ).mappings().all()
+        bid_info = [
+            BidInfoSchema(
+                vehicle_id=row["vehicle_id"],
+                created_at=row["created_at"],
+                driver_price=row["driver_price"] or 0,
+                broker_price=row["broker_price"] or 0,
+            )
+            for row in bid_rows
+        ] or None
+
+        await self._mark_read(load.id)
+
+        return LoadDetailSchema.from_load(load, bid_info=bid_info)
+
+    async def _mark_read(self, load_id: int) -> None:
+        if self.user.user_id is None:
+            return
+        already = await self.session.scalar(
+            select(load_is_read_users.c.id).where(
+                load_is_read_users.c.load_id == load_id,
+                load_is_read_users.c.user_id == self.user.user_id,
+            )
+        )
+        if already is not None:
+            return
+        await self.session.execute(
+            insert(load_is_read_users).values(
+                load_id=load_id, user_id=self.user.user_id
+            )
+        )
+        await self.session.commit()
+

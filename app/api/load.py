@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser, get_current_user
 from ..core.dependencies import get_tenant_db
 from ..filters.load import LoadFilter, load_filter_params
-from ..schemas.load import PaginatedLoads
-from ..services.load import LoadListParams, LoadListService
+from ..schemas.load import PaginatedLoads, LoadDetailSchema
+from ..services.load import LoadListParams, LoadListService, LoadDetailService
 
 router = APIRouter(prefix="/api/v1/load", tags=["load"])
 
@@ -52,3 +52,17 @@ async def list_loads(
         previous=prev_url,
         results=results,
     )
+
+
+@router.get("/{load_id}/", response_model=LoadDetailSchema)
+async def retrieve_load(
+    load_id: int,
+    session: AsyncSession = Depends(get_tenant_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> LoadDetailSchema:
+    service = LoadDetailService(session, user)
+    load = await service.get(load_id)
+    if load is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+    return load
+
