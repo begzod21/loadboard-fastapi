@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import datetime
-import decimal
 
 from sqlalchemy import (
     Boolean,
     Column,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
-    Numeric,
     String,
     Table,
     Text,
@@ -94,23 +91,23 @@ class Vehicle(Base):
     make: Mapped[str | None] = mapped_column(String(255))
     year: Mapped[str | None] = mapped_column(String(255))
 
-    payload_lbs: Mapped[float | None] = mapped_column(Float)
-    useful_cargo_length: Mapped[float | None] = mapped_column(Float)
-    useful_cargo_width: Mapped[float | None] = mapped_column(Float)
-    useful_cargo_height: Mapped[float | None] = mapped_column(Float)
-    door_width: Mapped[float | None] = mapped_column(Float)
-    door_height: Mapped[float | None] = mapped_column(Float)
+    payload_lbs: Mapped[str | None] = mapped_column(String(255))
+    useful_cargo_length: Mapped[str | None] = mapped_column(String(255))
+    useful_cargo_width: Mapped[str | None] = mapped_column(String(255))
+    useful_cargo_height: Mapped[str | None] = mapped_column(String(255))
+    door_width: Mapped[str | None] = mapped_column(String(255))
+    door_height: Mapped[str | None] = mapped_column(String(255))
 
     notes: Mapped[str | None] = mapped_column(Text)
 
     last_address: Mapped[str | None] = mapped_column(String(255))
-    latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
-    longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    latitude: Mapped[str | None] = mapped_column(String(255))
+    longitude: Mapped[str | None] = mapped_column(String(255))
     last_geo_date_time: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
     planned_address: Mapped[str | None] = mapped_column(String(255))
-    planned_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
-    planned_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    planned_latitude: Mapped[str | None] = mapped_column(String(255))
+    planned_longitude: Mapped[str | None] = mapped_column(String(255))
     planned_date_time: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))

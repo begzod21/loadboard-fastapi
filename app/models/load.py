@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import datetime
-import decimal
 
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
-    Numeric,
     String,
     Table,
 )
@@ -59,13 +56,13 @@ class Load(Base):
 
     pick_up_at_state: Mapped[str | None] = mapped_column(String(255))
     pick_up_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
-    pick_up_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
-    pick_up_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    pick_up_latitude: Mapped[str | None] = mapped_column(String(255))
+    pick_up_longitude: Mapped[str | None] = mapped_column(String(255))
 
     deliver_to_state: Mapped[str | None] = mapped_column(String(255))
     delivery_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
-    deliver_to_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
-    deliver_to_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    deliver_to_latitude: Mapped[str | None] = mapped_column(String(255))
+    deliver_to_longitude: Mapped[str | None] = mapped_column(String(255))
 
     pick_up_date_raw: Mapped[str | None] = mapped_column(String(255))
     delivery_date_raw: Mapped[str | None] = mapped_column(String(255))
@@ -82,7 +79,7 @@ class Load(Base):
     contact_email: Mapped[str | None] = mapped_column(String(255))
     contact_phone: Mapped[str | None] = mapped_column(String(255))
     contact_person: Mapped[str | None] = mapped_column(String(255))
-    posted_amount: Mapped[float | None] = mapped_column(Float)
+    posted_amount: Mapped[str | None] = mapped_column(String(255))
     order_number: Mapped[str | None] = mapped_column(String(255))
     bid_link: Mapped[str | None] = mapped_column(String)
 
@@ -115,8 +112,8 @@ class LoadPoint(Base):
     type: Mapped[str | None] = mapped_column(String(10))
     order: Mapped[int | None] = mapped_column(Integer)
     address: Mapped[str | None] = mapped_column(String(255))
-    latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
-    longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    latitude: Mapped[str | None] = mapped_column(String(255))
+    longitude: Mapped[str | None] = mapped_column(String(255))
     state: Mapped[str | None] = mapped_column(String(255))
     zip_code: Mapped[str | None] = mapped_column(String(20))
     date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
@@ -129,8 +126,8 @@ class Bid(Base):
     load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("owner_vehicle.id"))
     dispatcher_id: Mapped[int | None] = mapped_column(Integer)
-    driver_price: Mapped[float | None] = mapped_column(Float)
-    broker_price: Mapped[float | None] = mapped_column(Float)
+    driver_price: Mapped[str | None] = mapped_column(String(255))
+    broker_price: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -141,7 +138,7 @@ class DriverBid(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("owner_vehicle.id"))
-    driver_price: Mapped[float | None] = mapped_column(Float)
+    driver_price: Mapped[str | None] = mapped_column(String(255))
     owner_bid: Mapped[bool] = mapped_column(Boolean, default=False)
     dispatch_bid_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -155,5 +152,5 @@ class ConfirmedLoad(Base):
     status: Mapped[int | None] = mapped_column(Integer)
     vehicle_id: Mapped[int | None] = mapped_column(ForeignKey("owner_vehicle.id"))
     load_id: Mapped[int | None] = mapped_column(ForeignKey("load_load.id"))
-    driver_price: Mapped[float | None] = mapped_column(Float)
+    driver_price: Mapped[str | None] = mapped_column(String(255))
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
