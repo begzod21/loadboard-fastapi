@@ -166,7 +166,7 @@ class VehicleListService:
         load_clause = [DriverBid.load_id == load_id] if load_id else []
         dbp = (
             select(DriverBid.driver_price)
-            .where(DriverBid.vehicle_id == Vehicle.id, DriverBid.is_deleted.is_(False), *load_clause)
+            .where(DriverBid.vehicle_id == Vehicle.id, *load_clause)
             .limit(1)
             .scalar_subquery()
         )
@@ -174,7 +174,6 @@ class VehicleListService:
             select(DriverBid.id).where(
                 DriverBid.vehicle_id == Vehicle.id,
                 DriverBid.owner_bid.is_(True),
-                DriverBid.is_deleted.is_(False),
                 *load_clause,
             )
         )
@@ -182,7 +181,6 @@ class VehicleListService:
             select(ConfirmedLoad.id).where(
                 ConfirmedLoad.vehicle_id == Vehicle.id,
                 ConfirmedLoad.status.in_([1, 2, 3, 4]),
-                ConfirmedLoad.is_deleted.is_(False),
             )
         )
         is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
