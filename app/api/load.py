@@ -9,10 +9,10 @@ from ..filters.load import LoadFilter, load_filter_params
 from ..schemas.load import PaginatedLoads, LoadDetailSchema
 from ..services.load import LoadListParams, LoadListService, LoadDetailService
 
-router = APIRouter(prefix="/api/v1/load", tags=["load"])
+router = APIRouter(prefix="/app/api", tags=["load"])
 
 
-@router.get("/list/", response_model=PaginatedLoads)
+@router.get("/load/list/", response_model=PaginatedLoads)
 async def list_loads(
     request: Request,
     cargo_distance: float | None = Query(default=None, description="Override tenant cargo_distance"),
@@ -54,7 +54,7 @@ async def list_loads(
     )
 
 
-@router.get("/{load_id}/", response_model=LoadDetailSchema)
+@router.get("/load/{load_id}/", response_model=LoadDetailSchema)
 async def retrieve_load(
     load_id: int,
     session: AsyncSession = Depends(get_tenant_db),
