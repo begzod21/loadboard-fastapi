@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime, json
+import datetime
 from dataclasses import dataclass
 
 from fastapi import BackgroundTasks
@@ -277,13 +277,6 @@ class LoadDetailService:
                 self.tenant.schema_name,
             )
         
-        data = LoadDetailSchema.from_load(
-            load,
-            bid_info=bid_info,
-            company_data=company_data,
-        ).model_dump(mode="json")
 
-        print("JSON size:", len(json.dumps(data)))
-
-        return data
+        return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
 
