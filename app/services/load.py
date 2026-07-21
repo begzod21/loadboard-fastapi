@@ -129,6 +129,7 @@ class LoadDetailService:
     def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
         self.session = session
         self.user = user
+        self.tenant_data: object | None = None
 
     async def get(self, load_id: int) -> LoadDetailSchema | None:
         load = await self.session.scalar(

@@ -10,7 +10,7 @@ async def tenant_middleware(request: Request, call_next):
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
-                SELECT id, schema_name, domain_url, cargo_distance, mapbox_token
+                SELECT id, schema_name, domain_url, cargo_distance, mapbox_token, bid_message, mc_number
                 FROM company_company
                 WHERE domain_url = :domain
             """),
