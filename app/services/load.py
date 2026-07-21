@@ -4,6 +4,7 @@ import datetime
 from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select, insert, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -265,7 +266,7 @@ class LoadDetailService:
         if self.user.user_id is None:
             return
         stmt = (
-            insert(load_is_read_users)
+            pg_insert(load_is_read_users)
             .values(
                 load_id=load_id,
                 user_id=self.user.user_id,
