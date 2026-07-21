@@ -74,6 +74,16 @@ class VehicleListService:
         self.team_ids = user.team_ids
         self.map_service = MapService(mapbox_token)
 
+    def _vehicle_query_options(self):
+        return [
+            selectinload(Vehicle.owner_company),
+            selectinload(Vehicle.driver),
+            selectinload(Vehicle.second_driver),
+            selectinload(Vehicle.type),
+            selectinload(Vehicle.team),
+            selectinload(Vehicle.equipment),
+        ]
+
     async def list(
         self, params: VehicleListParams, filters: VehicleFilter
     ) -> tuple[int, list[VehicleSchema]]:
@@ -148,7 +158,7 @@ class VehicleListService:
             .order_by(Vehicle.id.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(selectinload(Vehicle.equipment))
+            .options(*self._vehicle_query_options())
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
@@ -311,7 +321,7 @@ class VehicleListService:
             await self.session.scalars(
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
-                .options(selectinload(Vehicle.equipment))
+                .options(*self._vehicle_query_options())
             )
         ).unique().all()
         by_id = {v.id: v for v in vehicles}
