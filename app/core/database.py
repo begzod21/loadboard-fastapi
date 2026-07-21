@@ -23,7 +23,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-async def warmup(connections: int = 5) -> None:
+async def warmup(connections: int = 10) -> None:
     """Pre-open DB connections and configure ORM mappers so the first
     incoming request does not pay the cold-start cost."""
     configure_mappers()
