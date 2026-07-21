@@ -265,18 +265,26 @@ class LoadDetailService:
 
             bid_info = result or None
 
-        if (
-            background_tasks
-            and self.user.user_id is not None
-            and self.tenant is not None
-        ):
-            background_tasks.add_task(
-                mark_load_read,
-                load.id,
-                self.user.user_id,
-                self.tenant.schema_name,
-            )
+        self._mark_read(load_id)
         
 
         return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
+    
+    async def _mark_read(self, load_id: int) -> None:
+        if self.user.user_id is None:
+            return
+        already = await self.session.scalar(
+            select(load_is_read_users.c.id).where(
+                load_is_read_users.c.load_id == load_id,
+                load_is_read_users.c.user_id == self.user.user_id,
+            )
+        )
+        if already is not None:
+            return
+        await self.session.execute(
+            insert(load_is_read_users).values(
+                load_id=load_id, user_id=self.user.user_id
+            )
+        )
+        await self.session.commit()
 
