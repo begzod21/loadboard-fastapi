@@ -199,7 +199,7 @@ class LoadDetailSchema(BaseModel):
         default_message_on_bid = None
         if company_data is not None:
             bid_message, mc_number = _extract_company_message_data(company_data)
-            default_message_on_bid = _build_default_message_on_bid(bid_message[:1000], mc_number)
+            default_message_on_bid = _build_default_message_on_bid(bid_message[:2000], mc_number)
 
         return cls(
             id=load.id,
