@@ -61,8 +61,8 @@ async def retrieve_load(
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> LoadDetailSchema:
-    service = LoadDetailService(session, user)
-    service.tenant_data = getattr(request.state, "tenant", None)
+    tenant = getattr(request.state, "tenant", None)
+    service = LoadDetailService(session, user, tenant=tenant)
     load = await service.get(load_id)
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
