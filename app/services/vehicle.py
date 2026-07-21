@@ -74,16 +74,6 @@ class VehicleListService:
         self.team_ids = user.team_ids
         self.map_service = MapService(mapbox_token)
 
-    def _vehicle_query_options(self):
-        return [
-            selectinload(Vehicle.owner_company),
-            selectinload(Vehicle.driver),
-            selectinload(Vehicle.second_driver),
-            selectinload(Vehicle.type),
-            selectinload(Vehicle.team),
-            selectinload(Vehicle.equipment),
-        ]
-
     async def list(
         self, params: VehicleListParams, filters: VehicleFilter
     ) -> tuple[int, list[VehicleSchema]]:
@@ -149,17 +139,20 @@ class VehicleListService:
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
 
+        count = await self.session.scalar(
+            select(func.count()).select_from(Vehicle).where(where)
+        )
         stmt = (
             select(Vehicle)
             .where(where)
             .order_by(Vehicle.id.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(*self._vehicle_query_options())
+            .options(selectinload(Vehicle.equipment))
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
-        return len(results), results
+        return int(count or 0), results
 
     async def _distance_list(
         self,
@@ -318,7 +311,7 @@ class VehicleListService:
             await self.session.scalars(
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
-                .options(*self._vehicle_query_options())
+                .options(selectinload(Vehicle.equipment))
             )
         ).unique().all()
         by_id = {v.id: v for v in vehicles}
