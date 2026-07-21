@@ -41,15 +41,3 @@ async def close_db():
     
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
-
-from sqlalchemy import event
-import time
-
-@event.listens_for(engine.sync_engine, "before_cursor_execute")
-def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
-    conn.info.setdefault("query_start_time", []).append(time.perf_counter())
-
-@event.listens_for(engine.sync_engine, "after_cursor_execute")
-def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
-    total = (time.perf_counter() - conn.info["query_start_time"].pop()) * 1000
-    print(f"{total:.2f} ms | {statement[:120]}")
