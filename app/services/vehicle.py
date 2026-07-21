@@ -301,17 +301,14 @@ class VehicleListService:
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
-        start = time.perf_counter()
         count = await self.session.scalar(
             select(func.count()).select_from(ordered_stmt.subquery())
         )
-        print(f"COUNT TIME: {(time.perf_counter() - start) * 1000:.2f} ms")
         page_stmt = ordered_stmt.offset(
             (params.page - 1) * params.page_size
         ).limit(params.page_size)
 
         rows = (await self.session.execute(page_stmt)).mappings().all()
-        print(f"PAGE TIME: {(time.perf_counter() - start) * 1000:.2f} ms")
         if not rows:
             return int(count or 0), []
 
@@ -325,7 +322,6 @@ class VehicleListService:
                 .options(*self._vehicle_query_options())
             )
         ).unique().all()
-        print(f"VEHICLE TIME: {(time.perf_counter() - start) * 1000:.2f} ms")
         by_id = {v.id: v for v in vehicles}
 
         results: list[VehicleSchema] = []
