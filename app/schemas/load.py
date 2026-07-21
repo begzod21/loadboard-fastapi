@@ -180,7 +180,11 @@ class LoadDetailSchema(BaseModel):
             company = company_data
             bid_message = company.bid_message
             if bid_message:
-                default_message_on_bid = bid_message
+                mc_number = company.mc_number
+                if mc_number:
+                    default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
+                else:
+                    default_message_on_bid = bid_message
         
         return cls(
             id=load.id,
