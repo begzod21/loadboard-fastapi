@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..models.load import Load
 
@@ -146,6 +146,17 @@ class LoadDetailSchema(BaseModel):
     points: list[LoadPointSchema] = []
     broker_notes: str | None = None
     map_url: str | None = None
+
+    @field_validator("dims", mode="before")
+    @classmethod
+    def validate_dims(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (list, tuple)):
+            return " x ".join(str(item) for item in value)
+        return str(value)
 
     @classmethod
     def from_load(
