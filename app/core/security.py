@@ -56,7 +56,6 @@ async def get_current_user(
     session: AsyncSession = Depends(get_tenant_db),
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
-    print("AUTH SESSION", id(session))
     user_id = _decode_user_id(authorization)
 
     rows = await session.execute(
