@@ -7,5 +7,3 @@ class Company(BaseModel):
     domain_url: str
     cargo_distance: Optional[float] = None
     mapbox_token: Optional[str] = None
-    bid_message: Optional[str] = None
-    mc_number: Optional[str] = None
