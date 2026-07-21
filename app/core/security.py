@@ -58,42 +58,33 @@ async def get_current_user(
 ) -> CurrentUser:
     user_id = _decode_user_id(authorization)
 
-    rows = await session.execute(
-        text(
-            """
-            SELECT team_id
-            FROM user_user_teams
-            WHERE user_id = :user_id
-            """
-        ),
+    result = await session.execute(
+        text("""
+            SELECT
+                u.is_superuser,
+                array_remove(array_agg(DISTINCT ut.team_id), NULL) AS team_ids,
+                array_remove(array_agg(DISTINCT p.codename), NULL) AS permissions
+            FROM user_user u
+            LEFT JOIN user_user_teams ut
+                ON ut.user_id = u.id
+            LEFT JOIN user_user_user_permissions up
+                ON up.user_id = u.id
+            LEFT JOIN auth_permission p
+                ON p.id = up.permission_id
+            WHERE u.id = :user_id
+            GROUP BY u.id, u.is_superuser
+        """),
         {"user_id": user_id},
     )
-    team_ids = [int(row.team_id) for row in rows if row.team_id is not None]
 
-    r = await session.execute(
-        text(
-            """
-            SELECT is_superuser
-            FROM user_user
-            WHERE id = :user_id
-            """
-        ),
-        {"user_id": user_id},
+    row = result.first()
+
+    if row is None:
+        raise _credentials_exception("User not found")
+
+    return CurrentUser(
+        user_id=user_id,
+        is_superuser=row.is_superuser,
+        team_ids=row.team_ids or [],
+        permissions=set(row.permissions or []),
     )
-    user_row = r.first()
-    is_superuser = bool(user_row.is_superuser) if user_row is not None else False
-
-    perms = await session.execute(
-        text(
-            """
-            SELECT p.codename
-            FROM auth_permission p
-            JOIN user_user_user_permissions up ON up.permission_id = p.id
-            WHERE up.user_id = :user_id
-            """
-        ),
-        {"user_id": user_id},
-    )
-    permissions = {row.codename for row in perms}
-
-    return CurrentUser(team_ids=team_ids, user_id=user_id, is_superuser=is_superuser, permissions=permissions)
