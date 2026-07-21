@@ -264,18 +264,17 @@ class LoadDetailService:
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:
             return
-        already = await self.session.scalar(
-            select(load_is_read_users.c.id).where(
-                load_is_read_users.c.load_id == load_id,
-                load_is_read_users.c.user_id == self.user.user_id,
+        stmt = (
+            insert(load_is_read_users)
+            .values(
+                load_id=load_id,
+                user_id=self.user.user_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["load_id", "user_id"]
             )
         )
-        if already is not None:
-            return
-        await self.session.execute(
-            insert(load_is_read_users).values(
-                load_id=load_id, user_id=self.user.user_id
-            )
-        )
+
+        await self.session.execute(stmt)
         await self.session.commit()
 
