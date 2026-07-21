@@ -140,7 +140,6 @@ class BidInfoSchema(BaseModel):
 
 class LoadDetailSchema(BaseModel):
     id: int
-    default_message_on_bid: str | None = None
     pick_up_at: str | None = None
     pick_up_date_raw: str | None = None
     deliver_to: str | None = None
@@ -194,16 +193,10 @@ class LoadDetailSchema(BaseModel):
         load: Load,
         *,
         bid_info: list[BidInfoSchema] | None = None,
-        company_data = None,
     ) -> "LoadDetailSchema":
-        default_message_on_bid = None
-        if company_data is not None:
-            bid_message, mc_number = _extract_company_message_data(company_data)
-            default_message_on_bid = _build_default_message_on_bid(bid_message, mc_number)
-            
+
         return cls(
             id=load.id,
-            default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,
