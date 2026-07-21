@@ -194,7 +194,7 @@ class LoadDetailService:
                     ),
                     {"company_id": self.tenant.id},
                 )
-                company_data = company_row.first()                
+                company_data = company_row.mappings().first()
 
             dispatcher_ids = [row.get("dispatcher_id") for row in rows if row.get("dispatcher_id") is not None]
             driver_ids = [row.get("driver_id") for row in rows if row.get("driver_id") is not None]

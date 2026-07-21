@@ -21,6 +21,16 @@ def _build_default_message_on_bid(bid_message: object | None, mc_number: object 
     return text.replace("[mc]", str(mc_number))
 
 
+def _extract_company_message_data(company_data: object | None) -> tuple[object | None, object | None]:
+    if company_data is None:
+        return None, None
+
+    if hasattr(company_data, "get"):
+        return company_data.get("bid_message"), company_data.get("mc_number")
+
+    return getattr(company_data, "bid_message", None), getattr(company_data, "mc_number", None)
+
+
 class LoadListSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -188,11 +198,8 @@ class LoadDetailSchema(BaseModel):
     ) -> "LoadDetailSchema":
         default_message_on_bid = None
         if company_data is not None:
-            company = company_data
-            default_message_on_bid = _build_default_message_on_bid(
-                getattr(company, "bid_message", None),
-                getattr(company, "mc_number", None),
-            )
+            bid_message, mc_number = _extract_company_message_data(company_data)
+            default_message_on_bid = _build_default_message_on_bid(bid_message, mc_number)
 
         return cls(
             id=load.id,
