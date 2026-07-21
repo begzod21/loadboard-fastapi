@@ -224,7 +224,8 @@ class LoadDetailService:
 
         await self._mark_read(load.id)
 
-        return LoadDetailSchema.from_load(load, bid_info=bid_info)
+        tenant_data = getattr(self, "tenant_data", None)
+        return LoadDetailSchema.from_load(load, bid_info=bid_info, tenant_data=tenant_data)
 
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:
