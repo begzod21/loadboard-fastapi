@@ -174,6 +174,18 @@ class LoadDetailService:
 
             rows = (await self.session.execute(stmt)).mappings().all()
 
+            company_row = await self.session.execute(
+                text(
+                    """
+                    SELECT bid_message, mc_number
+                    FROM company_company
+                    WHERE id = :company_id
+                    """
+                ),
+                {"company_id": self.tenant.id if self.tenant else None},
+            )
+            company_data = company_row.first()
+
             result = []
             for row in rows:
                 vehicle_team = row.get("team_id")
@@ -226,7 +238,7 @@ class LoadDetailService:
 
         await self._mark_read(load.id)
 
-        return LoadDetailSchema.from_load(load, bid_info=bid_info, tenant_data=self.tenant)
+        return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
 
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:

@@ -169,10 +169,10 @@ class LoadDetailSchema(BaseModel):
         *,
         default_message_on_bid: str | None = None,
         bid_info: list[BidInfoSchema] | None = None,
-        tenant_data: TenantCompanyOut | None = None,
+        company_data = None,
     ) -> "LoadDetailSchema":
-        if default_message_on_bid is None and tenant_data is not None:
-            company = getattr(tenant_data, "company", None) or tenant_data
+        if default_message_on_bid is None and company_data is not None:
+            company = company_data
             bid_message = getattr(company, "bid_message", None)
             if bid_message:
                 mc_number = getattr(company, "mc_number", None)
