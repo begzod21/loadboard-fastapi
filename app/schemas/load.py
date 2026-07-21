@@ -127,7 +127,7 @@ class LoadDetailSchema(BaseModel):
     miles: int | None = None
     pieces: int | None = None
     weight: int | None = None
-    dims: str | None = None
+    dims: list[int | str] | None = None
     stackable: bool | None = None
     hazardous: bool | None = None
     fast_load: bool | None = None
@@ -153,14 +153,17 @@ class LoadDetailSchema(BaseModel):
 
     @field_validator("dims", mode="before")
     @classmethod
-    def validate_dims(cls, value: object) -> str | None:
+    def validate_dims(cls, value: object) -> list[int | str] | None:
         if value is None:
             return None
-        if isinstance(value, str):
-            return value
         if isinstance(value, (list, tuple)):
-            return " x ".join(str(item) for item in value)
-        return str(value)
+            return [item for item in value]
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split("x") if part.strip()]
+            if len(parts) == 1:
+                return [parts[0]]
+            return [part for part in parts]
+        return [str(value)]
 
     @classmethod
     def from_load(
