@@ -183,19 +183,18 @@ class LoadDetailService:
             rows = (await self.session.execute(stmt)).mappings().all()
 
             company_data = None
-            company_data = self.tenant
-            # if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
-            #     company_row = await self.session.execute(
-            #         text(
-            #             """
-            #             SELECT bid_message, mc_number
-            #             FROM company_company
-            #             WHERE id = :company_id
-            #             """
-            #         ),
-            #         {"company_id": self.tenant.id},
-            #     )
-            #     company_data = company_row.mappings().first()
+            if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
+                company_row = await self.session.execute(
+                    text(
+                        """
+                        SELECT bid_message, mc_number
+                        FROM company_company
+                        WHERE id = :company_id
+                        """
+                    ),
+                    {"company_id": self.tenant.id},
+                )
+                company_data = company_row.mappings().first()
 
             dispatcher_ids = [row.get("dispatcher_id") for row in rows if row.get("dispatcher_id") is not None]
             driver_ids = [row.get("driver_id") for row in rows if row.get("driver_id") is not None]
