@@ -10,6 +10,17 @@ from ..models.load import Load
 from ..schemas.company import TenantCompanyOut
 
 
+def _build_default_message_on_bid(bid_message: object | None, mc_number: object | None) -> str | None:
+    if not bid_message:
+        return None
+
+    text = str(bid_message)
+    if not mc_number or "[mc]" not in text:
+        return text
+
+    return text.replace("[mc]", str(mc_number))
+
+
 class LoadListSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -178,17 +189,14 @@ class LoadDetailSchema(BaseModel):
         default_message_on_bid = None
         if company_data is not None:
             company = company_data
-            bid_message = company.bid_message
-            if bid_message:
-                mc_number = company.mc_number
-                if mc_number:
-                    default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
-                else:
-                    default_message_on_bid = bid_message
-        
+            default_message_on_bid = _build_default_message_on_bid(
+                getattr(company, "bid_message", None),
+                getattr(company, "mc_number", None),
+            )
+
         return cls(
             id=load.id,
-            default_message_on_bid="abc",
+            default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,
