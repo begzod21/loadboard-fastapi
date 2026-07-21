@@ -16,7 +16,7 @@ from ..models.load import (
     load_is_read_users,
     load_vehicle_teams,
 )
-from ..models.vehicle import Vehicle
+from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 
 
@@ -160,6 +160,7 @@ class LoadDetailService:
                     Bid.dispatcher_id,
                     Vehicle.team_id,
                     Vehicle.object_id,
+                    Vehicle.driver_id,
                 )
                 .select_from(Bid)
                 .join(Vehicle, Vehicle.id == Bid.vehicle_id, isouter=True)
@@ -182,10 +183,22 @@ class LoadDetailService:
                     or (view_mode == "without_prices" and row.get("dispatcher_id") == self.user.user_id)
                 )
 
+                dispatcher_name = None
+                driver_name = None
+                if row.get("dispatcher_id") is not None:
+                    dispatcher_name = self.user.username
+
+                if row.get("driver_id") is not None:
+                    driver = await self.session.scalar(select(Driver).where(Driver.id == row.get("driver_id")))
+                    if driver is not None:
+                        driver_name = driver.full_name
+
                 result.append(
                     BidInfoSchema(
                         vehicle_id=row.get("object_id") or row.get("vehicle_id"),
                         created_at=row.get("created_at"),
+                        dispatcher_name=dispatcher_name,
+                        driver_name=driver_name,
                         driver_price=(row.get("driver_price") or 0) if show_prices else 0,
                         broker_price=(row.get("broker_price") or 0) if show_prices else 0,
                     )
