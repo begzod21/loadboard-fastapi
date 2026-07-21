@@ -22,7 +22,6 @@ from ..models.load import (
 from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 from ..schemas.company import TenantCompanyOut
-from ..tasks.load import mark_load_read
 
 
 @dataclass
