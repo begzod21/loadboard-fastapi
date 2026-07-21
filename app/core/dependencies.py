@@ -17,4 +17,6 @@ async def get_tenant_db(
         await session.execute(
             text(f"SET search_path TO {tenant.schema_name}, public")
         )
+        pid = await session.scalar(text("SELECT pg_backend_pid()"))
+        print(f"POSTGRES PID: {pid}")
         yield session
