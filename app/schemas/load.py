@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..models.load import Load
 
-from ..schemas.company import TenantCompanyOut
+import base64
 
 
 def _build_default_message_on_bid(bid_message: object | None, mc_number: object | None) -> str | None:
@@ -199,7 +199,11 @@ class LoadDetailSchema(BaseModel):
         default_message_on_bid = None
         if company_data is not None:
             bid_message, mc_number = _extract_company_message_data(company_data)
-            default_message_on_bid = _build_default_message_on_bid(bid_message[:2500], mc_number)
+            default_message_on_bid = _build_default_message_on_bid(bid_message, mc_number)
+            default_message_on_bid = base64.b64encode(
+                default_message_on_bid.encode()
+            ).decode()
+            
 
         return cls(
             id=load.id,
