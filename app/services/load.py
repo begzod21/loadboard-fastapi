@@ -165,6 +165,7 @@ class LoadDetailService:
                 .select_from(Bid)
                 .join(Vehicle, Vehicle.id == Bid.vehicle_id, isouter=True)
                 .where(Bid.load_id == load.id)
+                .order_by(Bid.id.desc())
             )
             if view_mode == "own":
                 stmt = stmt.where(Bid.dispatcher_id == self.user.user_id)
