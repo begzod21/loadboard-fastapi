@@ -185,7 +185,6 @@ class LoadDetailSchema(BaseModel):
                     default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
                 else:
                     default_message_on_bid = bid_message
-        print("bid len:", len(default_message_on_bid or ""))
         return cls(
             id=load.id,
             default_message_on_bid=default_message_on_bid,

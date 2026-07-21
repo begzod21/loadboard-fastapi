@@ -5,8 +5,6 @@ from dataclasses import dataclass
 
 from fastapi import BackgroundTasks
 
-import time
-
 from sqlalchemy import and_, exists, func, or_, select, insert, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
@@ -185,7 +183,6 @@ class LoadDetailService:
             rows = (await self.session.execute(stmt)).mappings().all()
 
             company_data = None
-            t = time.perf_counter()
             if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
                 company_row = await self.session.execute(
                     text(
@@ -197,8 +194,8 @@ class LoadDetailService:
                     ),
                     {"company_id": self.tenant.id},
                 )
-                print(f"Company query: {(time.perf_counter() - t) * 1000:.2f} ms")
                 company_data = company_row.first()
+                company_data = None
                 
 
             dispatcher_ids = [row.get("dispatcher_id") for row in rows if row.get("dispatcher_id") is not None]
