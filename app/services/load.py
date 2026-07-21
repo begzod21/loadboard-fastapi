@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 
-from sqlalchemy import and_, exists, func, or_, select, insert
+from sqlalchemy import and_, exists, func, or_, select, insert, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -185,6 +185,23 @@ class LoadDetailService:
 
                 dispatcher_name = None
                 driver_name = None
+
+                if row.get("dispatcher_id") is not None:
+                    user_row = await self.session.execute(
+                        text(
+                            """
+                            SELECT first_name, last_name
+                            FROM user_user
+                            WHERE id = :user_id
+                            """
+                        ),
+                        {"user_id": row.get("dispatcher_id")},
+                    )
+                    user_data = user_row.first()
+                    if user_data is not None:
+                        first_name = user_data.first_name or ""
+                        last_name = user_data.last_name or ""
+                        dispatcher_name = " ".join(part for part in [first_name, last_name] if part).strip() or None
 
                 if row.get("driver_id") is not None:
                     driver = await self.session.scalar(select(Driver).where(Driver.id == row.get("driver_id")))
