@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser, get_current_user
@@ -58,12 +58,13 @@ async def list_loads(
 async def retrieve_load(
     request: Request,
     load_id: int,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> LoadDetailSchema:
     tenant = getattr(request.state, "tenant", None)
     service = LoadDetailService(session, user, tenant=tenant)
-    load = await service.get(load_id)
+    load = await service.get(load_id, background_tasks=background_tasks)
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     return load

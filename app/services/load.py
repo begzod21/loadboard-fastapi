@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 
+from fastapi import BackgroundTasks
 
 from sqlalchemy import and_, exists, func, or_, select, insert, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -138,6 +139,7 @@ class LoadDetailService:
     async def get(
             self, 
             load_id: int,
+            background_tasks: BackgroundTasks | None = None,
         ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
@@ -263,24 +265,18 @@ class LoadDetailService:
 
             bid_info = result or None
 
-        self._mark_read(load_id=load_id)
+        if (
+            background_tasks
+            and self.user.user_id is not None
+            and self.tenant is not None
+        ):
+            background_tasks.add_task(
+                mark_load_read,
+                load.id,
+                self.user.user_id,
+                self.tenant.schema_name,
+            )
+        
 
         return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
-    
-    async def _mark_read(self, load_id: int) -> None:
-        if self.user.user_id is None:
-            return
-        stmt = (
-            pg_insert(load_is_read_users)
-            .values(
-                load_id=load_id,
-                user_id=self.user.user_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=["load_id", "user_id"]
-            )
-        )
-
-        await self.session.execute(stmt)
-        await self.session.commit()
 
