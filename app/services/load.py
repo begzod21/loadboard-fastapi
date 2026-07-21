@@ -18,6 +18,7 @@ from ..models.load import (
 )
 from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
+from ..schemas.company import TenantCompanyOut
 
 
 @dataclass
@@ -126,10 +127,10 @@ class LoadListService:
         return int(count), results
 
 class LoadDetailService:
-    def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
+    def __init__(self, session: AsyncSession, user: CurrentUser, tenant: TenantCompanyOut | None) -> None:
         self.session = session
         self.user = user
-        self.tenant_data: object | None = None
+        self.tenant: TenantCompanyOut | None = tenant
 
     async def get(self, load_id: int) -> LoadDetailSchema | None:
         load = await self.session.scalar(
@@ -225,8 +226,7 @@ class LoadDetailService:
 
         await self._mark_read(load.id)
 
-        tenant_data = getattr(self, "tenant_data", None)
-        return LoadDetailSchema.from_load(load, bid_info=bid_info, tenant_data=tenant_data)
+        return LoadDetailSchema.from_load(load, bid_info=bid_info, tenant_data=self.tenant)
 
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:

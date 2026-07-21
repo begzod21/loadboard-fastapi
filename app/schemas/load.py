@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..models.load import Load
 
+from ..schemas.company import TenantCompanyOut
+
 
 class LoadListSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -167,7 +169,7 @@ class LoadDetailSchema(BaseModel):
         *,
         default_message_on_bid: str | None = None,
         bid_info: list[BidInfoSchema] | None = None,
-        tenant_data: object | None = None,
+        tenant_data: TenantCompanyOut | None = None,
     ) -> "LoadDetailSchema":
         if default_message_on_bid is None and tenant_data is not None:
             company = getattr(tenant_data, "company", None) or tenant_data

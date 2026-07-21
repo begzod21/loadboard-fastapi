@@ -62,7 +62,6 @@ async def retrieve_load(
     user: CurrentUser = Depends(get_current_user),
 ) -> LoadDetailSchema:
     service = LoadDetailService(session, user)
-    print(request.state.tenant.bid_message)
     service.tenant_data = getattr(request.state, "tenant", None)
     load = await service.get(load_id)
     if load is None:
