@@ -201,8 +201,7 @@ class LoadDetailSchema(BaseModel):
             bid_message, mc_number = _extract_company_message_data(company_data)
             default_message_on_bid = bid_message.replace("\r\n", "")
             default_message_on_bid = _build_default_message_on_bid(default_message_on_bid, mc_number)
-        print("chars:", len(default_message_on_bid))
-        print("bytes:", len(default_message_on_bid.encode("utf-8")))
+
         return cls(
             id=load.id,
             default_message_on_bid=default_message_on_bid,
