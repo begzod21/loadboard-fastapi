@@ -178,9 +178,9 @@ class LoadDetailSchema(BaseModel):
         default_message_on_bid = None
         if company_data is not None:
             company = company_data
-            bid_message = company.get("bid_message", None)
+            bid_message = company.bid_message
             if bid_message:
-                mc_number = company.get("mc_number", None)
+                mc_number = company.mc_number
                 if mc_number:
                     default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
                 else:
