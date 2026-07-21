@@ -24,7 +24,7 @@ app = FastAPI(
 )
 
 app.middleware("http")(tenant_middleware)
-app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=10)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=8)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
