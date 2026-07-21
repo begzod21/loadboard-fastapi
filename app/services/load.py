@@ -139,7 +139,6 @@ class LoadDetailService:
     async def get(
             self, 
             load_id: int,
-            background_tasks: BackgroundTasks | None = None,
         ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
