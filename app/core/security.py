@@ -13,6 +13,9 @@ from app.core.dependencies import get_tenant_db
 class CurrentUser:
     team_ids: list[int] = field(default_factory=list)
     user_id: int | None = None
+    is_superuser: bool = False
+    permissions: set[str] = field(default_factory=set)
+    
 
 
 def _credentials_exception(detail: str) -> HTTPException:
@@ -67,4 +70,30 @@ async def get_current_user(
     )
     team_ids = [int(row.team_id) for row in rows if row.team_id is not None]
 
-    return CurrentUser(team_ids=team_ids, user_id=user_id)
+    r = await session.execute(
+        text(
+            """
+            SELECT is_superuser
+            FROM user_user
+            WHERE id = :user_id
+            """
+        ),
+        {"user_id": user_id},
+    )
+    user_row = r.first()
+    is_superuser = bool(user_row.is_superuser) if user_row is not None else False
+
+    perms = await session.execute(
+        text(
+            """
+            SELECT p.codename
+            FROM auth_permission p
+            JOIN user_user_user_permissions up ON up.permission_id = p.id
+            WHERE up.user_id = :user_id
+            """
+        ),
+        {"user_id": user_id},
+    )
+    permissions = {row.codename for row in perms}
+
+    return CurrentUser(team_ids=team_ids, user_id=user_id, is_superuser=is_superuser, permissions=permissions)

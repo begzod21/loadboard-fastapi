@@ -139,25 +139,59 @@ class LoadDetailService:
         if load is None:
             return None
 
-        bid_rows = (
-            await self.session.execute(
+        perms = self.user.permissions
+        if self.user.is_superuser or "VIEW_ALL_BIDS_WITH_PRICES" in perms:
+            view_mode = "with_prices"
+        elif "VIEW_ALL_BIDS_WITHOUT_PRICES" in perms:
+            view_mode = "without_prices"
+        elif "VIEW_OWN_BIDS" in perms:
+            view_mode = "own"
+        else:
+            view_mode = None
+
+        bid_info = None
+        if view_mode is not None:
+            stmt = (
                 select(
                     Bid.vehicle_id,
                     Bid.created_at,
                     Bid.driver_price,
                     Bid.broker_price,
-                ).where(Bid.load_id == load.id)
+                    Bid.dispatcher_id,
+                    Vehicle.team_id,
+                    Vehicle.object_id,
+                )
+                .select_from(Bid)
+                .join(Vehicle, Vehicle.id == Bid.vehicle_id, isouter=True)
+                .where(Bid.load_id == load.id)
             )
-        ).mappings().all()
-        bid_info = [
-            BidInfoSchema(
-                vehicle_id=row["vehicle_id"],
-                created_at=row["created_at"],
-                driver_price=row["driver_price"] or 0,
-                broker_price=row["broker_price"] or 0,
-            )
-            for row in bid_rows
-        ] or None
+            if view_mode == "own":
+                stmt = stmt.where(Bid.dispatcher_id == self.user.user_id)
+
+            rows = (await self.session.execute(stmt)).mappings().all()
+
+            result = []
+            for row in rows:
+                vehicle_team = row.get("team_id")
+                if vehicle_team and self.user.team_ids and vehicle_team not in self.user.team_ids:
+                    continue
+
+                show_prices = (
+                    view_mode == "with_prices"
+                    or view_mode == "own"
+                    or (view_mode == "without_prices" and row.get("dispatcher_id") == self.user.user_id)
+                )
+
+                result.append(
+                    BidInfoSchema(
+                        vehicle_id=row.get("object_id") or row.get("vehicle_id"),
+                        created_at=row.get("created_at"),
+                        driver_price=(row.get("driver_price") or 0) if show_prices else 0,
+                        broker_price=(row.get("broker_price") or 0) if show_prices else 0,
+                    )
+                )
+
+            bid_info = result or None
 
         await self._mark_read(load.id)
 
