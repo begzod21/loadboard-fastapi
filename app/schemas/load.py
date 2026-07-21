@@ -7,20 +7,18 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..models.load import Load
 
-from functools import lru_cache
+from ..schemas.company import TenantCompanyOut
 
-@lru_cache(maxsize=1024)
-def _build_default_message_on_bid(
-    bid_message: str | None,
-    mc_number: str | None,
-) -> str | None:
-    if bid_message is None:
+
+def _build_default_message_on_bid(bid_message: object | None, mc_number: object | None) -> str | None:
+    if not bid_message:
         return None
 
-    if mc_number is None or "[mc]" not in bid_message:
-        return bid_message
+    text = str(bid_message)
+    if not mc_number or "[mc]" not in text:
+        return text
 
-    return bid_message.replace("[mc]", mc_number)
+    return text.replace("[mc]", str(mc_number))
 
 
 def _extract_company_message_data(company_data: object | None) -> tuple[object | None, object | None]:
