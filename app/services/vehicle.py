@@ -12,7 +12,6 @@ Reproduces the Django behaviour:
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 
 from sqlalchemy import (
     Float,
