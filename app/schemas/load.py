@@ -175,6 +175,7 @@ class LoadDetailSchema(BaseModel):
         bid_info: list[BidInfoSchema] | None = None,
         company_data = None,
     ) -> "LoadDetailSchema":
+        default_message_on_bid = None
         if company_data is not None:
             company = company_data
             bid_message = getattr(company, "bid_message", None)
@@ -184,10 +185,10 @@ class LoadDetailSchema(BaseModel):
                     default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
                 else:
                     default_message_on_bid = bid_message
-
+        print("bid len:", len(default_message_on_bid or ""))
         return cls(
             id=load.id,
-            default_message_on_bid=None,
+            default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,
