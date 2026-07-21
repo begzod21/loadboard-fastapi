@@ -54,15 +54,14 @@ async def list_loads(
     )
 
 
-@router.get("/load/{load_id}/")
+@router.get("/load/{load_id}/", response_model=LoadDetailSchema)
 async def retrieve_load(
     request: Request,
     load_id: int,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
-):
-    return {"ok": True}
+) -> LoadDetailSchema:
     tenant = getattr(request.state, "tenant", None)
     service = LoadDetailService(session, user, tenant=tenant)
     load = await service.get(load_id, background_tasks=background_tasks)
