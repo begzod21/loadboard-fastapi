@@ -193,15 +193,16 @@ class LoadDetailService:
 
             dispatcher_names: dict[int, str | None] = {}
             if dispatcher_ids:
+                dispatcher_ids_unique = tuple(dict.fromkeys(dispatcher_ids))
                 dispatcher_rows = await self.session.execute(
                     text(
                         """
                         SELECT id, first_name, last_name
                         FROM user_user
-                        WHERE id IN :dispatcher_ids
+                        WHERE id = ANY(:dispatcher_ids)
                         """
                     ),
-                    {"dispatcher_ids": tuple(dict.fromkeys(dispatcher_ids))},
+                    {"dispatcher_ids": list(dispatcher_ids_unique)},
                 )
                 for dispatcher_row in dispatcher_rows:
                     first_name = dispatcher_row.first_name or ""
