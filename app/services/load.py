@@ -174,17 +174,49 @@ class LoadDetailService:
 
             rows = (await self.session.execute(stmt)).mappings().all()
 
-            company_row = await self.session.execute(
-                text(
-                    """
-                    SELECT bid_message, mc_number
-                    FROM company_company
-                    WHERE id = :company_id
-                    """
-                ),
-                {"company_id": self.tenant.id if self.tenant else None},
-            )
-            company_data = company_row.first()
+            company_data = None
+            if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
+                company_row = await self.session.execute(
+                    text(
+                        """
+                        SELECT bid_message, mc_number
+                        FROM company_company
+                        WHERE id = :company_id
+                        """
+                    ),
+                    {"company_id": self.tenant.id},
+                )
+                company_data = company_row.first()
+
+            dispatcher_ids = [row.get("dispatcher_id") for row in rows if row.get("dispatcher_id") is not None]
+            driver_ids = [row.get("driver_id") for row in rows if row.get("driver_id") is not None]
+
+            dispatcher_names: dict[int, str | None] = {}
+            if dispatcher_ids:
+                dispatcher_rows = await self.session.execute(
+                    text(
+                        """
+                        SELECT id, first_name, last_name
+                        FROM user_user
+                        WHERE id IN :dispatcher_ids
+                        """
+                    ),
+                    {"dispatcher_ids": tuple(dict.fromkeys(dispatcher_ids))},
+                )
+                for dispatcher_row in dispatcher_rows:
+                    first_name = dispatcher_row.first_name or ""
+                    last_name = dispatcher_row.last_name or ""
+                    dispatcher_names[int(dispatcher_row.id)] = (
+                        " ".join(part for part in [first_name, last_name] if part).strip() or None
+                    )
+
+            drivers_by_id: dict[int, Driver] = {}
+            if driver_ids:
+                driver_rows = await self.session.scalars(
+                    select(Driver).where(Driver.id.in_(tuple(dict.fromkeys(driver_ids))))
+                )
+                for driver in driver_rows.all():
+                    drivers_by_id[int(driver.id)] = driver
 
             result = []
             for row in rows:
@@ -201,25 +233,13 @@ class LoadDetailService:
                 dispatcher_name = None
                 driver_name = None
 
-                if row.get("dispatcher_id") is not None:
-                    user_row = await self.session.execute(
-                        text(
-                            """
-                            SELECT first_name, last_name
-                            FROM user_user
-                            WHERE id = :user_id
-                            """
-                        ),
-                        {"user_id": row.get("dispatcher_id")},
-                    )
-                    user_data = user_row.first()
-                    if user_data is not None:
-                        first_name = user_data.first_name or ""
-                        last_name = user_data.last_name or ""
-                        dispatcher_name = " ".join(part for part in [first_name, last_name] if part).strip() or None
+                dispatcher_id = row.get("dispatcher_id")
+                if dispatcher_id is not None:
+                    dispatcher_name = dispatcher_names.get(int(dispatcher_id))
 
-                if row.get("driver_id") is not None:
-                    driver = await self.session.scalar(select(Driver).where(Driver.id == row.get("driver_id")))
+                driver_id = row.get("driver_id")
+                if driver_id is not None:
+                    driver = drivers_by_id.get(int(driver_id))
                     if driver is not None:
                         driver_name = driver.full_name
 
