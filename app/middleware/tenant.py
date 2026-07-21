@@ -29,7 +29,9 @@ async def tenant_middleware(request: Request, call_next):
         schema_name=row.schema_name,
         domain_url=row.domain_url,
         cargo_distance=row.cargo_distance,
-        mapbox_token=row.mapbox_token
+        mapbox_token=row.mapbox_token,
+        bid_message=row.bid_message,
+        mc_number=row.mc_number,
     )
 
     return await call_next(request)
