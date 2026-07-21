@@ -178,13 +178,14 @@ class LoadDetailSchema(BaseModel):
         default_message_on_bid = None
         if company_data is not None:
             company = company_data
-            bid_message = getattr(company, "bid_message", None)
+            bid_message = company.get("bid_message", None)
             if bid_message:
-                mc_number = getattr(company, "mc_number", None)
+                mc_number = company.get("mc_number", None)
                 if mc_number:
                     default_message_on_bid = bid_message.replace("[mc]", str(mc_number))
                 else:
                     default_message_on_bid = bid_message
+        
         return cls(
             id=load.id,
             default_message_on_bid=default_message_on_bid,
