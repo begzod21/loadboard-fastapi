@@ -61,7 +61,7 @@ async def retrieve_load(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
-) -> LoadDetailSchema:
+):
     return {"ok": True}
     tenant = getattr(request.state, "tenant", None)
     service = LoadDetailService(session, user, tenant=tenant)
