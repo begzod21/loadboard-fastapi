@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 
+from fastapi import BackgroundTasks
+
 from sqlalchemy import and_, exists, func, or_, select, insert, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
@@ -20,6 +22,7 @@ from ..models.load import (
 from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 from ..schemas.company import TenantCompanyOut
+from ..tasks.load import mark_load_read
 
 
 @dataclass
@@ -133,7 +136,11 @@ class LoadDetailService:
         self.user = user
         self.tenant: TenantCompanyOut | None = tenant
 
-    async def get(self, load_id: int) -> LoadDetailSchema | None:
+    async def get(
+            self, 
+            load_id: int,
+            background_tasks: BackgroundTasks | None = None,
+        ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
             .where(Load.id == load_id, Load.is_deleted.is_(False))
@@ -258,24 +265,17 @@ class LoadDetailService:
 
             bid_info = result or None
 
-        await self._mark_read(load.id)
+        if (
+            background_tasks
+            and self.user.user_id is not None
+            and self.tenant is not None
+        ):
+            background_tasks.add_task(
+                mark_load_read,
+                load.id,
+                self.user.user_id,
+                self.tenant.schema_name,
+            )
 
         return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
-
-    async def _mark_read(self, load_id: int) -> None:
-        if self.user.user_id is None:
-            return
-        stmt = (
-            pg_insert(load_is_read_users)
-            .values(
-                load_id=load_id,
-                user_id=self.user.user_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=["load_id", "user_id"]
-            )
-        )
-
-        await self.session.execute(stmt)
-        await self.session.commit()
 
