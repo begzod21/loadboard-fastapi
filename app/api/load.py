@@ -54,7 +54,7 @@ async def list_loads(
     )
 
 
-@router.get("/load/{load_id}/", response_model=LoadDetailSchema)
+@router.get("/load/{load_id}/")
 async def retrieve_load(
     request: Request,
     load_id: int,
