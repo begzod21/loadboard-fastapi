@@ -185,8 +185,6 @@ class LoadDetailService:
 
                 dispatcher_name = None
                 driver_name = None
-                if row.get("dispatcher_id") is not None:
-                    dispatcher_name = self.user.username
 
                 if row.get("driver_id") is not None:
                     driver = await self.session.scalar(select(Driver).where(Driver.id == row.get("driver_id")))
