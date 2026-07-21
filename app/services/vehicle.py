@@ -149,9 +149,6 @@ class VehicleListService:
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
 
-        count = await self.session.scalar(
-            select(func.count()).select_from(Vehicle).where(where)
-        )
         stmt = (
             select(Vehicle)
             .where(where)
@@ -162,7 +159,7 @@ class VehicleListService:
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
-        return int(count or 0), results
+        return len(results), results
 
     async def _distance_list(
         self,
