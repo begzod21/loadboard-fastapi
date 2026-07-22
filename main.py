@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from app.core.database import engine, close_db, warmup
+from app.core.database import close_db, warmup
 from app.middleware import tenant_middleware, GZipMiddleware, CORSMiddleware
 
 from app.api import load_router, vehicle_router
@@ -22,7 +22,7 @@ app = FastAPI(
 )
 
 app.middleware("http")(tenant_middleware)
-app.add_middleware(GZipMiddleware, minimum_size=50000, compresslevel=4)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
