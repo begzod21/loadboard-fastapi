@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
 from app.schemas.company import TenantCompanyOut
 
-from core.database import engine
+from app.core.database import engine
 
 async def get_tenant(request: Request) -> TenantCompanyOut:
     if not hasattr(request.state, "tenant"):
