@@ -1,3 +1,4 @@
+import sys
 from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ async def get_tenant_db(
 
     async with AsyncSessionLocal() as session:
         sid = id(session)
-        print(f"[session {sid}] open")
+        print(f"[session {sid}] open", flush=True)
         try:
             async with session.begin():
                 row = (
@@ -48,4 +49,4 @@ async def get_tenant_db(
 
                 yield session
         finally:
-            print(f"[session {sid}] close")
+            print(f"[session {sid}] close", flush=True)
