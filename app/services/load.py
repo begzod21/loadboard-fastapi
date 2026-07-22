@@ -278,10 +278,10 @@ class LoadDetailService:
         )
         if already is not None:
             return
-        await self.session.execute(
-            insert(load_is_read_users).values(
-                load_id=load_id, user_id=self.user.user_id
+        async with self.session.begin():
+            await self.session.execute(
+                insert(load_is_read_users).values(
+                    load_id=load_id, user_id=self.user.user_id
+                )
             )
-        )
-        await self.session.commit()
 

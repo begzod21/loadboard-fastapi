@@ -16,37 +16,36 @@ async def get_tenant_db(
         sid = id(session)
         print(f"[session {sid}] open", flush=True)
         try:
-            async with session.begin():
-                row = (
-                    await session.execute(
-                        text(
-                            """
-                            SELECT id, schema_name, domain_url, cargo_distance, mapbox_token
-                            FROM company_company
-                            WHERE domain_url = :domain
-                            """
-                        ),
-                        {"domain": domain},
-                    )
-                ).fetchone()
-
-                if row is None:
-                    raise HTTPException(404, f"Company not found for domain: {domain}")
-                if not row.schema_name:
-                    raise HTTPException(400, f"Schema name not defined for {domain}")
-
-                request.state.tenant = TenantCompanyOut(
-                    id=row.id,
-                    schema_name=row.schema_name,
-                    domain_url=row.domain_url,
-                    cargo_distance=row.cargo_distance,
-                    mapbox_token=row.mapbox_token,
-                )
-
+            row = (
                 await session.execute(
-                    text(f'SET search_path TO "{row.schema_name}", public')
+                    text(
+                        """
+                        SELECT id, schema_name, domain_url, cargo_distance, mapbox_token
+                        FROM company_company
+                        WHERE domain_url = :domain
+                        """
+                    ),
+                    {"domain": domain},
                 )
+            ).fetchone()
 
-                yield session
+            if row is None:
+                raise HTTPException(404, f"Company not found for domain: {domain}")
+            if not row.schema_name:
+                raise HTTPException(400, f"Schema name not defined for {domain}")
+
+            request.state.tenant = TenantCompanyOut(
+                id=row.id,
+                schema_name=row.schema_name,
+                domain_url=row.domain_url,
+                cargo_distance=row.cargo_distance,
+                mapbox_token=row.mapbox_token,
+            )
+
+            await session.execute(
+                text(f'SET search_path TO "{row.schema_name}", public')
+            )
+
+            yield session
         finally:
             print(f"[session {sid}] close", flush=True)
