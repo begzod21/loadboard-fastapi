@@ -11,9 +11,15 @@ async def get_tenant(request: Request) -> TenantCompanyOut:
     return request.state.tenant
 
 async def get_tenant_db(
-        tenant: TenantCompanyOut = Depends(get_tenant),
-) -> AsyncSession: # type: ignore
+    tenant: TenantCompanyOut = Depends(get_tenant),
+):
+    print("OPEN")
     async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(text(f"SET search_path TO {tenant.schema_name}, public"))
-            yield session
+        try:
+            async with session.begin():
+                await session.execute(
+                    text(f'SET search_path TO "{tenant.schema_name}", public')
+                )
+                yield session
+        finally:
+            print("CLOSING SESSION")
