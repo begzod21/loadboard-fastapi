@@ -8,7 +8,7 @@ Type=simple
 User=root
 Group=www-data
 WorkingDirectory=/var/www/loadboard-fastapi
-ExecStart=/var/www/loadboard-fastapi/venv/bin/uvicorn main:app --uds /run/loadboard-fastapi.sock
+ExecStart=/var/www/loadboard-fastapi/venv/bin/uvicorn main:app --uds /run/loadboard-fastapi.sock --workers 4 --loop uvloop
 Restart=always
 RestartSec=3
 
