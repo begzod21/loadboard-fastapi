@@ -11,8 +11,7 @@ from app.api import load_router, vehicle_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🔌 Connecting to database...")
-    await warmup()
-    print("✅ Database connected and pool warmed up.")
+    print("✅ Database connected")
 
     yield
     await close_db()
