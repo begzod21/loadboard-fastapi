@@ -13,6 +13,7 @@ from app.core.dependencies import get_tenant_db
 class CurrentUser:
     team_ids: list[int] = field(default_factory=list)
     user_id: int | None = None
+    user_uuid: str | None = None
     is_superuser: bool = False
     permissions: set[str] = field(default_factory=set)
     
@@ -26,7 +27,7 @@ def _credentials_exception(detail: str) -> HTTPException:
     )
 
 
-def _decode_user_id(authorization: str | None) -> int:
+def _decode_token(authorization: str | None) -> dict:
     if not authorization:
         raise _credentials_exception("Not authenticated")
 
@@ -42,26 +43,22 @@ def _decode_user_id(authorization: str | None) -> int:
         )
     except jwt.PyJWTError as exc:
         raise _credentials_exception("Invalid or expired token") from exc
-
-    user_id = payload.get("user_id")
-    if user_id is None:
-        raise _credentials_exception("Invalid or expired token")
-    try:
-        return int(user_id)
-    except (TypeError, ValueError) as exc:
-        raise _credentials_exception("Invalid or expired token") from exc
+    return payload
 
 
 async def get_current_user(
     session: AsyncSession = Depends(get_tenant_db),
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
-    user_id = _decode_user_id(authorization)
-
+    payload = _decode_token(authorization)
+    user_id = int(payload["user_id"]) if payload.get("user_id") is not None else None
+    if user_id is None:
+        raise _credentials_exception("Invalid or expired token")
     result = await session.execute(
         text("""
             SELECT
                 u.is_superuser,
+                u.uuid AS user_uuid,
                 array_remove(array_agg(DISTINCT ut.team_id), NULL) AS team_ids,
                 array_remove(array_agg(DISTINCT p.codename), NULL) AS permissions
             FROM user_user u
@@ -82,8 +79,11 @@ async def get_current_user(
     if row is None:
         raise _credentials_exception("User not found")
 
+    user_uuid = row.user_uuid
+
     return CurrentUser(
         user_id=user_id,
+        user_uuid=str(user_uuid) if user_uuid is not None else None,
         is_superuser=row.is_superuser,
         team_ids=row.team_ids or [],
         permissions=set(row.permissions or []),

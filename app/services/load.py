@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import asyncio
 import datetime
 from dataclasses import dataclass
 
@@ -22,6 +22,7 @@ from ..models.load import (
 from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 from ..schemas.company import TenantCompanyOut
+from .notify import SenderToWebSocket
 
 
 @dataclass
@@ -284,4 +285,5 @@ class LoadDetailService:
             )
         )
         await self.session.commit()
-
+        if self.user.user_uuid is not None:
+            asyncio.create_task(SenderToWebSocket().send_is_read_load(load_id, self.user.user_uuid))

@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     jwt_algorithm: str = "HS256"
 
+    URL_POST_WEBSOCKET: str = "http://localhost/v1/ws"
+    TOKEN_WEBSOCKET: str = ""
+    WEBSOCKET_UNIX_SOCKET: str = "/run/tms-websocket.sock"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
