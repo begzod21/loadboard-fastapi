@@ -130,7 +130,7 @@ class LoadPointSchema(BaseModel):
 
 
 class BidInfoSchema(BaseModel):
-    vehicle_id: int | None = None
+    vehicle_id: str | int | None = None
     created_at: datetime.datetime | None = None
     dispatcher_name: str | None = None
     driver_name: str | None = None
