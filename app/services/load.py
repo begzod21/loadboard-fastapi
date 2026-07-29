@@ -286,4 +286,4 @@ class LoadDetailService:
         )
         await self.session.commit()
         if self.user.user_uuid is not None:
-            asyncio.create_task(SenderToWebSocket().send_is_read_load(load_id, self.user.user_uuid))
+            await SenderToWebSocket().send_is_read_load(load_id, self.user.user_uuid)
