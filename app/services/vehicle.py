@@ -23,6 +23,7 @@ from sqlalchemy import (
     or_,
     select,
     union_all,
+    case,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -292,11 +293,16 @@ class VehicleListService:
             pln = pln.where(radius_filter_pln)
 
         unioned = union_all(cur, pln).subquery("veh")
+
+        priority_group = case(
+            (unioned.c.priority_vehicle == True, 0),
+            (unioned.c.is_driver_bid_vehicle == True, 1),
+            else_=2,
+        )
         ordered = (
             select(unioned)
             .order_by(
-                unioned.c.priority_vehicle.desc(),
-                unioned.c.is_driver_bid_vehicle.desc(),
+                priority_group.asc(),
                 unioned.c.sky_distance.asc(),
             )
         )
