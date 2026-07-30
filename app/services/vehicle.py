@@ -11,7 +11,7 @@ Reproduces the Django behaviour:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import (
     Float,
@@ -58,6 +58,7 @@ class VehicleListParams:
     radius: float | None = None
     load_id: int | None = None
     bid_id: int | None = None
+    vehicle_ids: list[int] = field(default_factory=list)
     page: int = 1
     page_size: int = 20
 
@@ -208,7 +209,14 @@ class VehicleListService:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             return cond
 
+        priority_vehicle = (
+            Vehicle.id.in_(params.vehicle_ids)
+            if params.vehicle_ids
+            else literal(False)
+        )
+
         common_cols = [
+            priority_vehicle.label("priority_vehicle"),
             is_dbv.label("is_driver_bid_vehicle"),
             dbp.label("driver_bid_price"),
             owner_bid_col.label("owner_bid"),
@@ -237,6 +245,7 @@ class VehicleListService:
                     )
                 )
             ordered = sel.order_by(
+                literal_column_desc("priority_vehicle"),
                 literal_column_desc("is_requested_vehicle"),
                 literal_column_desc("is_driver_bid_vehicle"),
                 literal_column_asc("sky_distance"),
@@ -286,6 +295,7 @@ class VehicleListService:
         ordered = (
             select(unioned)
             .order_by(
+                unioned.c.priority_vehicle.desc(),
                 unioned.c.is_driver_bid_vehicle.desc(),
                 unioned.c.sky_distance.asc(),
             )

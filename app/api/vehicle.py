@@ -21,6 +21,10 @@ async def list_vehicles(
     address: str | None = Query(default=None, description="Address to search nearby vehicles"),
     load_id: int | None = Query(default=None, description="ID of the load for location lookup"),
     bid_id: int | None = Query(default=None, description="ID of the bid for location lookup"),
+    vehicle_ids: str | None = Query(
+        None,
+        description="Vehicle IDs separated by comma. Example: 535,533,534",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     filters: VehicleFilter = Depends(vehicle_filter_params),
@@ -34,10 +38,10 @@ async def list_vehicles(
         else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
     )
 
-    service = VehicleListService(
-        session,
-        user,
-        mapbox_token=request.state.tenant.mapbox_token,
+    vehicle_ids_list = (
+        [int(v) for v in vehicle_ids.split(",") if v.strip()]
+        if vehicle_ids
+        else []
     )
     params = VehicleListParams(
         latitude=latitude,
@@ -46,8 +50,15 @@ async def list_vehicles(
         radius=resolved_radius,
         load_id=load_id,
         bid_id=bid_id,
+        vehicle_ids=vehicle_ids_list,
         page=page,
         page_size=page_size,
+    )
+
+    service = VehicleListService(
+        session,
+        user,
+        mapbox_token=request.state.tenant.mapbox_token,
     )
     try:
         count, results = await service.list(params, filters)
