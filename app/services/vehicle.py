@@ -117,6 +117,7 @@ class VehicleListService:
         if params.has_matching_vehicles and load is not None and load.vehicle_type:
             matching_vehicle_type = load.vehicle_type
 
+        print(matching_vehicle_type)
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
             if not params.load_id and params.bid_id:
@@ -151,7 +152,7 @@ class VehicleListService:
         if matching_vehicle_type:
             base = and_(
                 base,
-                Vehicle.type.has(VehicleType.name == matching_vehicle_type),
+                Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
             )
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
@@ -219,7 +220,7 @@ class VehicleListService:
             if matching_vehicle_type:
                 cond = and_(
                     cond,
-                    Vehicle.type.has(VehicleType.name == matching_vehicle_type),
+                    Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
                 )
             return cond
 
