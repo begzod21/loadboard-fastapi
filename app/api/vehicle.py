@@ -25,7 +25,7 @@ async def list_vehicles(
         None,
         description="Vehicle IDs separated by comma. Example: 535,533,534",
     ),
-    matching_vehicle: bool = Query(
+    has_matching_vehicles: bool = Query(
         default=False,
         description=(
             "If true, only return vehicles whose type name matches the "
@@ -58,7 +58,7 @@ async def list_vehicles(
         load_id=load_id,
         bid_id=bid_id,
         vehicle_ids=vehicle_ids_list,
-        matching_vehicle=matching_vehicle,
+        has_matching_vehicles=has_matching_vehicles,
         page=page,
         page_size=page_size,
     )

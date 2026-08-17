@@ -60,7 +60,7 @@ class VehicleListParams:
     load_id: int | None = None
     bid_id: int | None = None
     vehicle_ids: list[int] = field(default_factory=list)
-    matching_vehicle: bool = False
+    has_matching_vehicles: bool = False
     page: int = 1
     page_size: int = 20
 
@@ -114,7 +114,7 @@ class VehicleListService:
             vehicle_id = bid.vehicle_id
 
         matching_vehicle_type: str | None = None
-        if params.matching_vehicle and load is not None and load.vehicle_type:
+        if params.has_matching_vehicles and load is not None and load.vehicle_type:
             matching_vehicle_type = load.vehicle_type
 
         if latitude is not None and longitude is not None:
