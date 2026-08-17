@@ -25,6 +25,13 @@ async def list_vehicles(
         None,
         description="Vehicle IDs separated by comma. Example: 535,533,534",
     ),
+    matching_vehicle: bool = Query(
+        default=False,
+        description=(
+            "If true, only return vehicles whose type name matches the "
+            "load's vehicle_type (requires load_id or bid_id)."
+        ),
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     filters: VehicleFilter = Depends(vehicle_filter_params),
@@ -51,6 +58,7 @@ async def list_vehicles(
         load_id=load_id,
         bid_id=bid_id,
         vehicle_ids=vehicle_ids_list,
+        matching_vehicle=matching_vehicle,
         page=page,
         page_size=page_size,
     )

@@ -31,7 +31,7 @@ from sqlalchemy.orm import selectinload
 from ..core.security import CurrentUser
 from ..filters.vehicle import VehicleFilter
 from ..models.load import Bid, ConfirmedLoad, DriverBid, Load
-from ..models.vehicle import Vehicle
+from ..models.vehicle import Vehicle, VehicleType
 from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
@@ -60,6 +60,7 @@ class VehicleListParams:
     load_id: int | None = None
     bid_id: int | None = None
     vehicle_ids: list[int] = field(default_factory=list)
+    matching_vehicle: bool = False
     page: int = 1
     page_size: int = 20
 
@@ -89,6 +90,7 @@ class VehicleListService:
 
         driver_bid_vehicle_ids: list[int] = []
         vehicle_id: int | None = None
+        load: Load | None = None
 
         if params.load_id:
             load = await self.session.get(Load, params.load_id)
@@ -111,6 +113,10 @@ class VehicleListService:
                 latitude = float(load.pick_up_latitude)
             vehicle_id = bid.vehicle_id
 
+        matching_vehicle_type: str | None = None
+        if params.matching_vehicle and load is not None and load.vehicle_type:
+            matching_vehicle_type = load.vehicle_type
+
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
             if not params.load_id and params.bid_id:
@@ -126,18 +132,27 @@ class VehicleListService:
                 bool(params.bid_id),
                 load_id,
                 params,
+                matching_vehicle_type,
             )
 
-        return await self._plain_list(filters, params)
+        return await self._plain_list(filters, params, matching_vehicle_type)
 
     async def _plain_list(
-        self, filters: VehicleFilter, params: VehicleListParams
+        self,
+        filters: VehicleFilter,
+        params: VehicleListParams,
+        matching_vehicle_type: str | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         base = and_(
             Vehicle.status == 1,
             Vehicle.registration_status == 4,
             Vehicle.is_deleted.is_(False),
         )
+        if matching_vehicle_type:
+            base = and_(
+                base,
+                Vehicle.type.has(VehicleType.name == matching_vehicle_type),
+            )
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
 
@@ -166,6 +181,7 @@ class VehicleListService:
         is_bid: bool,
         load_id: int | None,
         params: VehicleListParams,
+        matching_vehicle_type: str | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         effective_radius = 300 if radius == -1 else radius
         load_clause = [DriverBid.load_id == load_id] if load_id else []
@@ -200,6 +216,11 @@ class VehicleListService:
             )
             if vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
+            if matching_vehicle_type:
+                cond = and_(
+                    cond,
+                    Vehicle.type.has(VehicleType.name == matching_vehicle_type),
+                )
             return cond
 
         def team_filter():
