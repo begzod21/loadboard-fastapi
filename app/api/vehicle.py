@@ -29,7 +29,8 @@ async def list_vehicles(
         default=False,
         description=(
             "If true, only return vehicles whose type name matches the "
-            "load's vehicle_type (requires load_id or bid_id)."
+            "load's vehicle_type and whose payload_lbs can carry the load's "
+            "weight (requires load_id or bid_id)."
         ),
     ),
     page: int = Query(default=1, ge=1),

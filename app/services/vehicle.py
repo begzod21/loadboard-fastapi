@@ -114,8 +114,12 @@ class VehicleListService:
             vehicle_id = bid.vehicle_id
 
         matching_vehicle_type: str | None = None
-        if params.has_matching_vehicles and load is not None and load.vehicle_type:
-            matching_vehicle_type = load.vehicle_type
+        matching_weight: int | None = None
+        if params.has_matching_vehicles and load is not None:
+            if load.vehicle_type:
+                matching_vehicle_type = load.vehicle_type
+            if load.weight is not None:
+                matching_weight = load.weight
 
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
@@ -133,15 +137,17 @@ class VehicleListService:
                 load_id,
                 params,
                 matching_vehicle_type,
+                matching_weight,
             )
 
-        return await self._plain_list(filters, params, matching_vehicle_type)
+        return await self._plain_list(filters, params, matching_vehicle_type, matching_weight)
 
     async def _plain_list(
         self,
         filters: VehicleFilter,
         params: VehicleListParams,
         matching_vehicle_type: str | None = None,
+        matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         base = and_(
             Vehicle.status == 1,
@@ -152,6 +158,11 @@ class VehicleListService:
             base = and_(
                 base,
                 Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
+            )
+        if matching_weight is not None:
+            base = and_(
+                base,
+                Vehicle.payload_lbs >= matching_weight,
             )
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
@@ -182,6 +193,7 @@ class VehicleListService:
         load_id: int | None,
         params: VehicleListParams,
         matching_vehicle_type: str | None = None,
+        matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         effective_radius = 300 if radius == -1 else radius
         load_clause = [DriverBid.load_id == load_id] if load_id else []
@@ -220,6 +232,11 @@ class VehicleListService:
                 cond = and_(
                     cond,
                     Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
+                )
+            if matching_weight is not None:
+                cond = and_(
+                    cond,
+                    Vehicle.payload_lbs >= matching_weight,
                 )
             return cond
 
