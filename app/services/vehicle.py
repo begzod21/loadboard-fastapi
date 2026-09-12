@@ -393,8 +393,12 @@ class VehicleListService:
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
+        count_source = ordered_stmt.order_by(None).with_only_columns(
+            ordered_stmt.selected_columns[0],
+            maintain_column_froms=True,
+        )
         count = await self.session.scalar(
-            select(func.count()).select_from(ordered_stmt.order_by(None).subquery())
+            select(func.count()).select_from(count_source.subquery())
         )
         page_stmt = ordered_stmt.offset(
             (params.page - 1) * params.page_size
