@@ -62,17 +62,19 @@ async def get_current_user(
             SELECT
                 u.is_superuser,
                 u.uuid AS user_uuid,
-                array_remove(array_agg(DISTINCT ut.team_id), NULL) AS team_ids,
-                array_remove(array_agg(DISTINCT p.codename), NULL) AS permissions
+                (
+                    SELECT array_agg(DISTINCT ut.team_id)
+                    FROM user_user_teams ut
+                    WHERE ut.user_id = u.id
+                ) AS team_ids,
+                (
+                    SELECT array_agg(DISTINCT p.codename)
+                    FROM user_user_user_permissions up
+                    JOIN auth_permission p ON p.id = up.permission_id
+                    WHERE up.user_id = u.id
+                ) AS permissions
             FROM user_user u
-            LEFT JOIN user_user_teams ut
-                ON ut.user_id = u.id
-            LEFT JOIN user_user_user_permissions up
-                ON up.user_id = u.id
-            LEFT JOIN auth_permission p
-                ON p.id = up.permission_id
             WHERE u.id = :user_id
-            GROUP BY u.id, u.is_superuser
         """),
         {"user_id": user_id},
     )

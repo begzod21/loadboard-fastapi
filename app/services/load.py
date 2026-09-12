@@ -185,6 +185,13 @@ class LoadDetailService:
             )
             if view_mode == "own":
                 stmt = stmt.where(Bid.dispatcher_id == self.user.user_id)
+            if self.user.team_ids:
+                stmt = stmt.where(
+                    or_(
+                        Vehicle.team_id.is_(None),
+                        Vehicle.team_id.in_(self.user.team_ids),
+                    )
+                )
 
             rows = (await self.session.execute(stmt)).mappings().all()
 
@@ -221,10 +228,6 @@ class LoadDetailService:
 
             result = []
             for row in rows:
-                vehicle_team = row.get("team_id")
-                if vehicle_team and self.user.team_ids and vehicle_team not in self.user.team_ids:
-                    continue
-
                 show_prices = (
                     view_mode == "with_prices"
                     or view_mode == "own"
