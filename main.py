@@ -38,8 +38,7 @@ app = FastAPI(
 # cannot block concurrent vehicle-list requests on the event loop.
 app.add_middleware(
     GZipMiddleware,
-    compresslevel=4,
-    minimum_size=1024,
+    minimum_size=500,
 )
 
 _cors_origins = settings.cors_origin_list
