@@ -34,20 +34,6 @@ app = FastAPI(
 )
 
 
-@app.middleware("http")
-async def request_timing(request, call_next):
-    started = time.perf_counter()
-    response = await call_next(request)
-    elapsed_ms = (time.perf_counter() - started) * 1000
-    if elapsed_ms >= 100:
-        logger.warning(
-            "slow request method=%s path=%s duration_ms=%.1f",
-            request.method,
-            request.url.path,
-            elapsed_ms,
-        )
-    return response
-
 # Compression runs in the default thread pool so a large load-detail response
 # cannot block concurrent vehicle-list requests on the event loop.
 app.add_middleware(
@@ -60,7 +46,6 @@ _cors_origins = settings.cors_origin_list
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    # browsers reject credentials combined with "*" — enable only with explicit origins
     allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
