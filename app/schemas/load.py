@@ -4,7 +4,7 @@ import datetime
 import decimal
 import re
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models.load import Load
 
@@ -60,7 +60,7 @@ class LoadListSchema(BaseModel):
     radius: float | None = None
     broker_rating: int | None = None
     count_day: int | None = None
-    vehicle_teams: list[int] = []
+    vehicle_teams: list[int] = Field(default_factory=list)
     broker_company: int | None = None
     has_driver_in_all_teams: bool | None = None
 
@@ -167,7 +167,7 @@ class LoadDetailSchema(BaseModel):
     bid_info: list[BidInfoSchema] | None = None
     order_number: str | None = None
     bid_link: str | None = None
-    points: list[LoadPointSchema] = []
+    points: list[LoadPointSchema] = Field(default_factory=list)
     broker_notes: str | None = None
     map_url: str | None = None
 
