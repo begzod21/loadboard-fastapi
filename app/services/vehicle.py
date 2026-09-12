@@ -27,12 +27,12 @@ from sqlalchemy import (
     case,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from ..core.security import CurrentUser
 from ..filters.vehicle import VehicleFilter
 from ..models.load import Bid, ConfirmedLoad, DriverBid, Load
-from ..models.vehicle import Vehicle, VehicleType
+from ..models.vehicle import Driver, Equipment, OwnerCompany, Team, Vehicle, VehicleType
 from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
@@ -66,6 +66,43 @@ def _geo_box(lat_col, lon_col, lat: float, lon: float, radius: float):
         if lon_delta < 180:
             clauses.append(lon_col.between(lon - lon_delta, lon + lon_delta))
     return and_(*clauses)
+
+
+def _vehicle_load_options():
+    return (
+        joinedload(Vehicle.owner_company).load_only(
+            OwnerCompany.id,
+            OwnerCompany.company_name,
+            OwnerCompany.company_phone,
+            OwnerCompany.company_applicant_first_name,
+            OwnerCompany.company_applicant_last_name,
+        ),
+        joinedload(Vehicle.driver).load_only(
+            Driver.id,
+            Driver.full_name,
+            Driver.citizenship,
+            Driver.phone,
+            Driver.address,
+            Driver.birth,
+            Driver.email,
+        ),
+        joinedload(Vehicle.second_driver).load_only(
+            Driver.id,
+            Driver.full_name,
+            Driver.citizenship,
+            Driver.phone,
+            Driver.address,
+            Driver.birth,
+            Driver.email,
+        ),
+        joinedload(Vehicle.type).load_only(VehicleType.id, VehicleType.name),
+        joinedload(Vehicle.team).load_only(Team.id, Team.name),
+        selectinload(Vehicle.equipment).load_only(
+            Equipment.id,
+            Equipment.name,
+            Equipment.short_name,
+        ),
+    )
 
 
 @dataclass
@@ -220,7 +257,7 @@ class VehicleListService:
             .order_by(Vehicle.id.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(selectinload(Vehicle.equipment))
+            .options(*_vehicle_load_options())
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
@@ -438,7 +475,7 @@ class VehicleListService:
             await self.session.scalars(
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
-                .options(selectinload(Vehicle.equipment))
+                .options(*_vehicle_load_options())
             )
         ).unique().all()
         by_id = {v.id: v for v in vehicles}
