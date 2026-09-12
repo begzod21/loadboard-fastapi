@@ -66,5 +66,6 @@ async def retrieve_load(
     load = await service.get(load_id)
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+    await session.close()
     return load
 
