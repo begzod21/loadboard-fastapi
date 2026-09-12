@@ -110,41 +110,64 @@ class VehicleListService:
 
         driver_bid_vehicle_ids: list[int] = []
         vehicle_id: int | None = None
-        load: Load | None = None
+        load_data = None
 
         if params.load_id:
-            load = await self.session.get(Load, params.load_id)
-            if load is None:
+            load_data = (
+                await self.session.execute(
+                    select(
+                        Load.id,
+                        Load.pick_up_longitude,
+                        Load.pick_up_latitude,
+                        Load.vehicle_type,
+                        Load.weight,
+                    ).where(Load.id == params.load_id)
+                )
+            ).mappings().first()
+            if load_data is None:
                 raise LookupError(f"Load not found! ID: {params.load_id}")
-            if load.pick_up_longitude is not None and load.pick_up_latitude is not None:
-                longitude = float(load.pick_up_longitude)
-                latitude = float(load.pick_up_latitude)
+            if load_data["pick_up_longitude"] is not None and load_data["pick_up_latitude"] is not None:
+                longitude = float(load_data["pick_up_longitude"])
+                latitude = float(load_data["pick_up_latitude"])
             driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id)
 
         if params.bid_id:
-            bid = await self.session.get(Bid, params.bid_id)
-            if bid is None:
+            bid_data = (
+                await self.session.execute(
+                    select(Bid.vehicle_id, Bid.load_id).where(Bid.id == params.bid_id)
+                )
+            ).mappings().first()
+            if bid_data is None:
                 raise LookupError(f"Bid not found! ID: {params.bid_id}")
-            if not bid.load_id:
+            if not bid_data["load_id"]:
                 raise LookupError("This bid has no Load!")
-            load = await self.session.get(Load, bid.load_id)
-            if load and load.pick_up_longitude is not None and load.pick_up_latitude is not None:
-                longitude = float(load.pick_up_longitude)
-                latitude = float(load.pick_up_latitude)
-            vehicle_id = bid.vehicle_id
+            load_data = (
+                await self.session.execute(
+                    select(
+                        Load.pick_up_longitude,
+                        Load.pick_up_latitude,
+                        Load.vehicle_type,
+                        Load.weight,
+                    ).where(Load.id == bid_data["load_id"])
+                )
+            ).mappings().first()
+            if load_data and load_data["pick_up_longitude"] is not None and load_data["pick_up_latitude"] is not None:
+                longitude = float(load_data["pick_up_longitude"])
+                latitude = float(load_data["pick_up_latitude"])
+            vehicle_id = bid_data["vehicle_id"]
 
         matching_vehicle_type: str | None = None
         matching_weight: int | None = None
-        if params.has_matching_vehicles and load is not None:
-            if load.vehicle_type:
-                matching_vehicle_type = load.vehicle_type
-            if load.weight is not None:
-                matching_weight = load.weight
+        if params.has_matching_vehicles and load_data is not None:
+            if load_data["vehicle_type"]:
+                matching_vehicle_type = load_data["vehicle_type"]
+            if load_data["weight"] is not None:
+                matching_weight = load_data["weight"]
 
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
             if not params.load_id and params.bid_id:
-                load_id = bid.load_id if bid else None
+                load_id = bid_data["load_id"] if bid_data else None
             else:
                 load_id = params.load_id
             return await self._distance_list(
