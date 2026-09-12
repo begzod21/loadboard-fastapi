@@ -4,6 +4,7 @@ import re
 from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from collections.abc import AsyncGenerator
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -49,8 +50,9 @@ async def _store_tenant(domain: str, tenant: TenantCompanyOut) -> None:
 
 async def get_tenant_db(
     request: Request,
-) -> AsyncSession:
+) -> AsyncGenerator[AsyncSession, None]:
     domain = request.url.hostname or "localhost"
+
     tenant = await _cached_tenant(domain)
 
     async with AsyncSessionLocal() as session:
@@ -59,8 +61,14 @@ async def get_tenant_db(
                 await session.execute(
                     text(
                         f"""
-                           SELECT id, schema_name, domain_url, cargo_distance, mapbox_token,
-                               bid_message, mc_number
+                        SELECT
+                            id,
+                            schema_name,
+                            domain_url,
+                            cargo_distance,
+                            mapbox_token,
+                            bid_message,
+                            mc_number
                         FROM {settings.tenant_table}
                         WHERE domain_url = :domain
                         """
@@ -70,9 +78,16 @@ async def get_tenant_db(
             ).fetchone()
 
             if row is None:
-                raise HTTPException(404, f"Company not found for domain: {domain}")
+                raise HTTPException(
+                    404,
+                    f"Company not found for domain: {domain}",
+                )
+
             if not row.schema_name:
-                raise HTTPException(400, f"Schema name not defined for {domain}")
+                raise HTTPException(
+                    400,
+                    f"Schema name not defined for {domain}",
+                )
 
             tenant = TenantCompanyOut(
                 id=row.id,
@@ -83,15 +98,21 @@ async def get_tenant_db(
                 bid_message=row.bid_message,
                 mc_number=row.mc_number,
             )
+
             await _store_tenant(domain, tenant)
 
-        if not _SCHEMA_NAME_RE.match(tenant.schema_name):
-            raise HTTPException(400, f"Invalid schema name for {domain}")
+        if not _SCHEMA_NAME_RE.fullmatch(tenant.schema_name):
+            raise HTTPException(
+                400,
+                f"Invalid schema name for {domain}",
+            )
 
         request.state.tenant = tenant
 
         await session.execute(
-            text(f'SET search_path TO "{tenant.schema_name}", public')
+            text(
+                f'SET search_path TO "{tenant.schema_name}", public'
+            )
         )
 
         yield session

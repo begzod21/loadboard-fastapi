@@ -75,8 +75,6 @@ async def list_vehicles(
     finally:
         await service.close()
 
-    await session.close()
-
     base_url = request.url
     forwarded_proto = request.headers.get("x-forwarded-proto")
     if forwarded_proto:
