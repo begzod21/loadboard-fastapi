@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser, get_current_user
@@ -84,9 +88,11 @@ async def list_vehicles(
     next_url = str(base_url.include_query_params(page=page + 1)) if has_next else None
     prev_url = str(base_url.include_query_params(page=page - 1)) if page > 1 else None
 
-    return PaginatedVehicles(
+    response = PaginatedVehicles(
         count=count,
         next=next_url,
         previous=prev_url,
         results=results,
     )
+    content = await asyncio.to_thread(jsonable_encoder, response)
+    return ORJSONResponse(content=content)  # type: ignore[return-value]
