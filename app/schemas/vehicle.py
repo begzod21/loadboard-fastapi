@@ -105,16 +105,32 @@ class VehicleSchema(BaseModel):
             full = f"{first} {last}".strip()
             owner_name = full or None
 
-        return cls(
+        return cls.model_construct(
             id=vehicle.id,
             object_id=vehicle.object_id,
             driver=(
-                DriverForVehicleListSchema.model_validate(vehicle.driver)
+                DriverForVehicleListSchema.model_construct(
+                    id=vehicle.driver.id,
+                    full_name=vehicle.driver.full_name,
+                    citizenship=vehicle.driver.citizenship,
+                    phone=vehicle.driver.phone,
+                    address=vehicle.driver.address,
+                    birth=vehicle.driver.birth,
+                    email=vehicle.driver.email,
+                )
                 if vehicle.driver
                 else None
             ),
             second_driver=(
-                DriverForVehicleListSchema.model_validate(vehicle.second_driver)
+                DriverForVehicleListSchema.model_construct(
+                    id=vehicle.second_driver.id,
+                    full_name=vehicle.second_driver.full_name,
+                    citizenship=vehicle.second_driver.citizenship,
+                    phone=vehicle.second_driver.phone,
+                    address=vehicle.second_driver.address,
+                    birth=vehicle.second_driver.birth,
+                    email=vehicle.second_driver.email,
+                )
                 if vehicle.second_driver
                 else None
             ),
