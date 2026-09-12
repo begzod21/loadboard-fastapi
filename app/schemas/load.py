@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import re
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..models.load import Load
-
-import base64
 
 
 def _build_default_message_on_bid(bid_message: object | None, mc_number: object | None) -> str | None:
@@ -188,6 +187,19 @@ class LoadDetailSchema(BaseModel):
                 return value
         return value
 
+    @field_validator("posted_amount", mode="before")
+    @classmethod
+    def validate_posted_amount(cls, value: object) -> float | None:
+        """posted_amount is stored as text in the DB (e.g. "$1,200.00");
+        coerce to float and never raise on unexpected formats."""
+        if value is None or isinstance(value, (int, float)):
+            return value
+        cleaned = re.sub(r"[^0-9.\-]", "", str(value).replace(",", ""))
+        try:
+            return float(cleaned) if cleaned else None
+        except ValueError:
+            return None
+
     @classmethod
     def from_load(
         cls,
@@ -200,7 +212,21 @@ class LoadDetailSchema(BaseModel):
         if company_data is not None:
             bid_message, mc_number = _extract_company_message_data(company_data)
             default_message_on_bid = _build_default_message_on_bid(bid_message, mc_number)
-            
+
+        coords = (
+            load.pick_up_latitude,
+            load.pick_up_longitude,
+            load.deliver_to_latitude,
+            load.deliver_to_longitude,
+        )
+        map_url = None
+        if all(c is not None for c in coords):
+            map_url = (
+                "https://www.google.com/maps/dir/"
+                f"{load.pick_up_latitude},{load.pick_up_longitude}/"
+                f"{load.deliver_to_latitude},{load.deliver_to_longitude}"
+            )
+
         return cls(
             id=load.id,
             default_message_on_bid=default_message_on_bid,
@@ -219,11 +245,7 @@ class LoadDetailSchema(BaseModel):
             suggested_truck=load.suggested_truck,
             notes=load.notes,
             contact_name=load.contact_name,
-            expire_date=load.expire_date,
-            contact_email=load.contact_email,
-            contact_phone=load.contact_phone,
-            contact_person=load.contact_person,
-            expire_date_raw=load.expire_date_raw,
+            expire_dmap_urlxpire_date_raw=load.expire_date_raw,
             broker_company=load.broker_company_id,
             broker_rating=load.broker_company.rating if load.broker_company else None,
             posted_amount=load.posted_amount,
@@ -233,9 +255,5 @@ class LoadDetailSchema(BaseModel):
             bid_link=load.bid_link,
             points=[LoadPointSchema.model_validate(p) for p in load.points],
             broker_notes=load.broker_company.notes if load.broker_company else None,
-            map_url=(
-                "https://www.google.com/maps/dir/"
-                f"{load.pick_up_latitude},{load.pick_up_longitude}/"
-                f"{load.deliver_to_latitude},{load.deliver_to_longitude}"
-            ),
+            map_url=map_url,
         )

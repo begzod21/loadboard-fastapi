@@ -1,11 +1,10 @@
 from __future__ import annotations
 import asyncio
 import datetime
+import logging
 from dataclasses import dataclass
 
-from fastapi import BackgroundTasks
-
-from sqlalchemy import and_, exists, func, or_, select, insert, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +22,11 @@ from ..models.vehicle import Driver, Vehicle
 from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
 from ..schemas.company import TenantCompanyOut
 from .notify import SenderToWebSocket
+
+logger = logging.getLogger(__name__)
+
+# strong refs to in-flight fire-and-forget tasks (prevents GC of running tasks)
+_background_tasks: set[asyncio.Task] = set()
 
 
 @dataclass
@@ -158,6 +162,20 @@ class LoadDetailService:
         else:
             view_mode = None
 
+        company_data = None
+        if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
+            company_row = await self.session.execute(
+                text(
+                    """
+                    SELECT bid_message, mc_number
+                    FROM company_company
+                    WHERE id = :company_id
+                    """
+                ),
+                {"company_id": self.tenant.id},
+            )
+            company_data = company_row.mappings().first()
+
         bid_info = None
         if view_mode is not None:
             stmt = (
@@ -180,20 +198,6 @@ class LoadDetailService:
                 stmt = stmt.where(Bid.dispatcher_id == self.user.user_id)
 
             rows = (await self.session.execute(stmt)).mappings().all()
-
-            company_data = None
-            if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
-                company_row = await self.session.execute(
-                    text(
-                        """
-                        SELECT bid_message, mc_number
-                        FROM company_company
-                        WHERE id = :company_id
-                        """
-                    ),
-                    {"company_id": self.tenant.id},
-                )
-                company_data = company_row.mappings().first()
 
             dispatcher_ids = [row.get("dispatcher_id") for row in rows if row.get("dispatcher_id") is not None]
             driver_ids = [row.get("driver_id") for row in rows if row.get("driver_id") is not None]
@@ -271,19 +275,20 @@ class LoadDetailService:
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:
             return
-        already = await self.session.scalar(
-            select(load_is_read_users.c.id).where(
-                load_is_read_users.c.load_id == load_id,
-                load_is_read_users.c.user_id == self.user.user_id,
-            )
-        )
-        if already is not None:
-            return
-        await self.session.execute(
-            insert(load_is_read_users).values(
-                load_id=load_id, user_id=self.user.user_id
-            )
+
+        # Single atomic upsert — no SELECT round-trip and no duplicate race
+        # (the M2M through-table carries UNIQUE(load_id, user_id)).
+        result = await self.session.execute(
+            pg_insert(load_is_read_users)
+            .values(load_id=load_id, user_id=self.user.user_id)
+            .on_conflict_do_nothing()
         )
         await self.session.commit()
-        if self.user.user_uuid is not None:
-            await SenderToWebSocket().send_is_read_load(load_id, self.user.user_uuid)
+
+        # Fire-and-forget so the websocket hop never delays the response.
+        if result.rowcount and self.user.user_uuid is not None:
+            task = asyncio.create_task(
+                SenderToWebSocket().send_is_read_load(load_id, self.user.user_uuid)
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)

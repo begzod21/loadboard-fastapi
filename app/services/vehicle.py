@@ -11,6 +11,7 @@ Reproduces the Django behaviour:
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from sqlalchemy import (
@@ -49,6 +50,22 @@ def _haversine(lat_col, lon_col, lat: float, lon: float):
     )
     clamped = func.least(1, func.greatest(-1, inner))
     return cast(EARTH_RADIUS_MILES * func.acos(clamped), Float)
+
+
+def _geo_box(lat_col, lon_col, lat: float, lon: float, radius: float):
+    """Reduce trig work by filtering to a conservative coordinate box first."""
+    lat_delta = radius / 69.0
+    clauses = [
+        lat_col.is_not(None),
+        lon_col.is_not(None),
+        cast(lat_col, Float).between(max(-90.0, lat - lat_delta), min(90.0, lat + lat_delta)),
+    ]
+    cos_lat = abs(math.cos(math.radians(lat)))
+    if cos_lat > 1e-6:
+        lon_delta = radius / (69.0 * cos_lat)
+        if lon_delta < 180:
+            clauses.append(cast(lon_col, Float).between(lon - lon_delta, lon + lon_delta))
+    return and_(*clauses)
 
 
 @dataclass
@@ -272,6 +289,14 @@ class VehicleListService:
                 is_requested.label("is_requested_vehicle"),
                 *common_cols,
             ).where(base_filter())
+            if effective_radius is not None:
+                sel = sel.where(
+                    or_(
+                        is_requested,
+                        is_dbv,
+                        _geo_box(Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius),
+                    )
+                )
             tf = team_filter()
             if tf is not None:
                 sel = sel.where(tf)
@@ -322,6 +347,14 @@ class VehicleListService:
             Vehicle.planned_address != "",
         )
 
+        if effective_radius is not None:
+            cur = cur.where(
+                or_(is_dbv, _geo_box(Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius))
+            )
+            pln = pln.where(
+                or_(is_dbv, _geo_box(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon, effective_radius))
+            )
+
         tf = team_filter()
         if tf is not None:
             cur = cur.where(tf)
@@ -348,7 +381,7 @@ class VehicleListService:
 
     async def _materialise(self, ordered_stmt, params):
         count = await self.session.scalar(
-            select(func.count()).select_from(ordered_stmt.subquery())
+            select(func.count()).select_from(ordered_stmt.order_by(None).subquery())
         )
         page_stmt = ordered_stmt.offset(
             (params.page - 1) * params.page_size

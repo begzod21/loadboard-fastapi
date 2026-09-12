@@ -48,11 +48,27 @@ class Settings(BaseSettings):
     TOKEN_WEBSOCKET: str = ""
     WEBSOCKET_UNIX_SOCKET: str = "/run/tms-websocket.sock"
 
+    # --- Production tuning (all overridable via .env) ---
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_RECYCLE: int = 1800
+    DB_POOL_TIMEOUT: int = 30
+
+    REDIS_MAX_CONNECTIONS: int = 20
+    TENANT_CACHE_TTL: int = 300  # seconds; 0 disables tenant caching
+
+    BROTLI_QUALITY: int = 4  # 4 ≈ gzip-9 ratio at ~10x less CPU than q=8+
+    CORS_ORIGINS: str = "*"  # comma-separated list, or "*"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
         case_sensitive=False,
     )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @property
     def db(self) -> DBSettings:

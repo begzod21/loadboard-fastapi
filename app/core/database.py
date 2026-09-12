@@ -8,11 +8,11 @@ from app.core.config import settings
 
 engine = create_async_engine(
     settings.db.async_db_url,
-    pool_size=5,
-    max_overflow=5,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
     pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_timeout=30,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
     echo=False,
 )
 
@@ -25,7 +25,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-async def warmup(connections: int = 3) -> None:
+async def warmup(connections: int = 1) -> None:
     """Pre-open DB connections and configure ORM mappers so the first
     incoming request does not pay the cold-start cost."""
     configure_mappers()

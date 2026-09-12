@@ -102,8 +102,10 @@ class Load(Base):
     vehicle_teams: Mapped[list["Team"]] = relationship(  # noqa: F821
         "Team", secondary=load_vehicle_teams, lazy="selectin"
     )
+    # "raise" (not "selectin") so list queries don't pay for a points fetch
+    # they never use; the detail service eager-loads it explicitly.
     points: Mapped[list["LoadPoint"]] = relationship(
-        "LoadPoint", order_by="LoadPoint.order", lazy="selectin"
+        "LoadPoint", order_by="LoadPoint.order", lazy="raise"
     )
 
 

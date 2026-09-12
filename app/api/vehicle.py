@@ -46,11 +46,10 @@ async def list_vehicles(
         else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
     )
 
-    vehicle_ids_list = (
-        [int(v) for v in vehicle_ids.split(",") if v.strip()]
-        if vehicle_ids
-        else []
-    )
+    try:
+        vehicle_ids_list = [int(v.strip()) for v in vehicle_ids.split(",") if v.strip()] if vehicle_ids else []
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="vehicle_ids must be comma-separated integers") from exc
     params = VehicleListParams(
         latitude=latitude,
         longitude=longitude,
