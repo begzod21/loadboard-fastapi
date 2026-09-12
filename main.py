@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse
 
 from app.core.config import settings
 from app.core.database import close_db, warmup
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Loadboard API",
     lifespan=lifespan,
+    default_response_class=ORJSONResponse,
 )
 
 app.add_middleware(GZipMiddleware, compresslevel=4, minimum_size=1024)
