@@ -119,6 +119,7 @@ class LoadListService:
             .order_by(Load.received_date.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
+            .options(selectinload(Load.vehicle_teams))
         )
         rows = (await self.session.execute(stmt)).unique().all()
 

@@ -100,7 +100,7 @@ class Load(Base):
 
     broker_company: Mapped[BrokerCompany | None] = relationship(lazy="joined")
     vehicle_teams: Mapped[list["Team"]] = relationship(  # noqa: F821
-        "Team", secondary=load_vehicle_teams, lazy="selectin"
+        "Team", secondary=load_vehicle_teams, lazy="raise"
     )
     # "raise" (not "selectin") so list queries don't pay for a points fetch
     # they never use; the detail service eager-loads it explicitly.
