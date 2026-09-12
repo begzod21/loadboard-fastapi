@@ -2,24 +2,17 @@ from __future__ import annotations
 
 import httpx
 
+from ..core.http import get_mapbox_client
+
 _GEOCODE_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json"
 
 
 class MapService:
     def __init__(self, token: str | None = None) -> None:
         self.token = token
-        self.client: httpx.AsyncClient | None = None
-
-    def _get_client(self) -> httpx.AsyncClient | None:
-        if not self.token:
-            return None
-        if self.client is None:
-            self.client = httpx.AsyncClient(timeout=10)
-        return self.client
 
     async def close(self) -> None:
-        if self.client is not None:
-            await self.client.aclose()
+        return None
 
     async def get_coordinates(self, address: str) -> tuple[float | None, float | None]:
         """Return ``(longitude, latitude)`` for an address, or ``(None, None)``."""
@@ -27,10 +20,10 @@ class MapService:
             return None, None
 
         params = {"access_token": self.token, "limit": 1}
-        client = self._get_client()
-        if client is None:
+        if not self.token:
             return None, None
         try:
+            client = await get_mapbox_client()
             resp = await client.get(_GEOCODE_URL.format(query=address), params=params)
             resp.raise_for_status()
             data = resp.json()
@@ -48,10 +41,10 @@ class MapService:
         if not self.token or not zip_code:
             return None
         params = {"access_token": self.token, "limit": 1, "types": "postcode"}
-        client = self._get_client()
-        if client is None:
+        if not self.token:
             return None
         try:
+            client = await get_mapbox_client()
             resp = await client.get(_GEOCODE_URL.format(query=zip_code), params=params)
             resp.raise_for_status()
             data = resp.json()

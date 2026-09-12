@@ -6,6 +6,7 @@ from fastapi.responses import ORJSONResponse
 
 from app.core.config import settings
 from app.core.database import close_db, warmup
+from app.core.http import close_http_clients
 from app.core.redis import close_redis
 
 from app.middleware import CORSMiddleware, GZipMiddleware
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
     finally:
         await close_db()
         await close_redis()
+        await close_http_clients()
         logger.info("Database and Redis connections closed")
 
 app = FastAPI(
