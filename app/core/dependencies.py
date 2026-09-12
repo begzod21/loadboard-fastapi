@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # schema_name is interpolated into SET search_path (bind params are not
 # allowed for identifiers) — keep it strictly alphanumeric to block SQLi.
 _SCHEMA_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_CACHE_PREFIX = "tenant:domain:"
+_CACHE_PREFIX = "tenant:v2:domain:"
 
 
 async def _cached_tenant(domain: str) -> TenantCompanyOut | None:
@@ -59,7 +59,8 @@ async def get_tenant_db(
                 await session.execute(
                     text(
                         f"""
-                        SELECT id, schema_name, domain_url, cargo_distance, mapbox_token
+                           SELECT id, schema_name, domain_url, cargo_distance, mapbox_token,
+                               bid_message, mc_number
                         FROM {settings.tenant_table}
                         WHERE domain_url = :domain
                         """
@@ -79,6 +80,8 @@ async def get_tenant_db(
                 domain_url=row.domain_url,
                 cargo_distance=row.cargo_distance,
                 mapbox_token=row.mapbox_token,
+                bid_message=row.bid_message,
+                mc_number=row.mc_number,
             )
             await _store_tenant(domain, tenant)
 

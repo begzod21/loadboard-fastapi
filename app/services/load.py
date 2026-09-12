@@ -162,19 +162,7 @@ class LoadDetailService:
         else:
             view_mode = None
 
-        company_data = None
-        if self.tenant is not None and getattr(self.tenant, "id", None) is not None:
-            company_row = await self.session.execute(
-                text(
-                    """
-                    SELECT bid_message, mc_number
-                    FROM company_company
-                    WHERE id = :company_id
-                    """
-                ),
-                {"company_id": self.tenant.id},
-            )
-            company_data = company_row.mappings().first()
+        company_data = self.tenant
 
         bid_info = None
         if view_mode is not None:
