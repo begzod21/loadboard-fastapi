@@ -11,4 +11,3 @@ psycopg2
 aiohttp
 httpx
 PyJWT
-brotli-asgi

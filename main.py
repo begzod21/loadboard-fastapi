@@ -1,14 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI
 
 from app.api import load_router, vehicle_router
 from app.core.config import settings
 from app.core.database import close_db, warmup
 from app.core.redis import close_redis
-from app.middleware import CORSMiddleware
+from app.middleware import CORSMiddleware, GZipMiddleware
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,11 +32,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# quality=4 keeps brotli ratio close to q=8 on JSON at a fraction of the CPU.
+# Compression runs in the default thread pool so a large load-detail response
+# cannot block concurrent vehicle-list requests on the event loop.
 app.add_middleware(
-    BrotliMiddleware,
-    quality=settings.BROTLI_QUALITY,
-    mode="text",
+    GZipMiddleware,
+    compresslevel=4,
     minimum_size=1024,
 )
 

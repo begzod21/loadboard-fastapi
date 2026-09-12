@@ -57,7 +57,6 @@ class Settings(BaseSettings):
     REDIS_MAX_CONNECTIONS: int = 20
     TENANT_CACHE_TTL: int = 300  # seconds; 0 disables tenant caching
 
-    BROTLI_QUALITY: int = 4  # 4 ≈ gzip-9 ratio at ~10x less CPU than q=8+
     CORS_ORIGINS: str = "*"  # comma-separated list, or "*"
 
     model_config = SettingsConfigDict(
