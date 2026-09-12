@@ -13,6 +13,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_recycle=settings.DB_POOL_RECYCLE,
     pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_use_lifo=True,
     echo=False,
 )
 

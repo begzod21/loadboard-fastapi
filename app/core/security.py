@@ -51,7 +51,10 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
     payload = _decode_token(authorization)
-    user_id = int(payload["user_id"]) if payload.get("user_id") is not None else None
+    try:
+        user_id = int(payload["user_id"]) if payload.get("user_id") is not None else None
+    except (TypeError, ValueError) as exc:
+        raise _credentials_exception("Invalid or expired token") from exc
     if user_id is None:
         raise _credentials_exception("Invalid or expired token")
     result = await session.execute(
