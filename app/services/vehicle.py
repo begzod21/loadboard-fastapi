@@ -166,7 +166,6 @@ class VehicleListService:
             if load_data["pick_up_longitude"] is not None and load_data["pick_up_latitude"] is not None:
                 longitude = float(load_data["pick_up_longitude"])
                 latitude = float(load_data["pick_up_latitude"])
-            driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id)
 
         if params.bid_id:
             bid_data = (
@@ -300,7 +299,19 @@ class VehicleListService:
                 ConfirmedLoad.is_deleted.is_(False),
             )
         )
-        is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
+        driver_bid_exists = exists(
+            select(DriverBid.id).where(
+                DriverBid.vehicle_id == Vehicle.id,
+                DriverBid.load_id == load_id,
+                DriverBid.vehicle_id.is_not(None),
+                DriverBid.is_deleted.is_(False),
+            )
+        ) if load_id else literal(False)
+        is_dbv = (
+            driver_bid_exists
+            if not driver_bid_vehicle_ids
+            else Vehicle.id.in_(driver_bid_vehicle_ids)
+        )
 
         def base_filter():
             cond = and_(

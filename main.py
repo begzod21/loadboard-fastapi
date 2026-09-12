@@ -23,7 +23,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(GZipMiddleware, compresslevel=9, minimum_size=1024)
+app.add_middleware(GZipMiddleware, compresslevel=4, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
