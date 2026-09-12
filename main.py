@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -31,6 +32,21 @@ app = FastAPI(
     title="Loadboard API",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def request_timing(request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if elapsed_ms >= 100:
+        logger.warning(
+            "slow request method=%s path=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+    return response
 
 # Compression runs in the default thread pool so a large load-detail response
 # cannot block concurrent vehicle-list requests on the event loop.
