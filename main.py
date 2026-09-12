@@ -8,7 +8,6 @@ from app.core.config import settings
 from app.core.database import close_db, warmup
 from app.core.redis import close_redis
 from app.middleware import CORSMiddleware, GZipMiddleware
-from fastapi.middleware.gzip import GZipMiddleware as FastAPIGZipMiddleware
 
 
 logging.basicConfig(
@@ -37,7 +36,11 @@ app = FastAPI(
 
 # Compression runs in the default thread pool so a large load-detail response
 # cannot block concurrent vehicle-list requests on the event loop.
-app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=9)
+app.add_middleware(
+    GZipMiddleware,
+    compresslevel=4,
+    minimum_size=1024,
+)
 
 _cors_origins = settings.cors_origin_list
 app.add_middleware(
