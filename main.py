@@ -24,7 +24,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(BrotliMiddleware, quality=4, mode="text", minimum_size=1024)
+# app.add_middleware(BrotliMiddleware, quality=4, mode="text", minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
