@@ -29,22 +29,18 @@ AsyncSessionLocal = async_sessionmaker(
 async def warmup(connections: int = 1) -> None:
     """Pre-open DB connections and configure ORM mappers so the first
     incoming request does not pay the cold-start cost."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    configure_mappers()
 
+    async def _open() -> None:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
 
-    
+    await asyncio.gather(*(_open() for _ in range(max(1, connections))))
 
 
 async def close_db():
     await engine.dispose()
-    
+
+
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
