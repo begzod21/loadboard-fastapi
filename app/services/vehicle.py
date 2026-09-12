@@ -58,13 +58,13 @@ def _geo_box(lat_col, lon_col, lat: float, lon: float, radius: float):
     clauses = [
         lat_col.is_not(None),
         lon_col.is_not(None),
-        cast(lat_col, Float).between(max(-90.0, lat - lat_delta), min(90.0, lat + lat_delta)),
+        lat_col.between(max(-90.0, lat - lat_delta), min(90.0, lat + lat_delta)),
     ]
     cos_lat = abs(math.cos(math.radians(lat)))
     if cos_lat > 1e-6:
         lon_delta = radius / (69.0 * cos_lat)
         if lon_delta < 180:
-            clauses.append(cast(lon_col, Float).between(lon - lon_delta, lon + lon_delta))
+            clauses.append(lon_col.between(lon - lon_delta, lon + lon_delta))
     return and_(*clauses)
 
 
@@ -93,6 +93,9 @@ class VehicleListService:
         self.user = user
         self.team_ids = user.team_ids
         self.map_service = MapService(mapbox_token)
+
+    async def close(self) -> None:
+        await self.map_service.close()
 
     async def list(
         self, params: VehicleListParams, filters: VehicleFilter
@@ -153,6 +156,7 @@ class VehicleListService:
                 bool(params.bid_id),
                 load_id,
                 params,
+                filters,
                 matching_vehicle_type,
                 matching_weight,
             )
@@ -209,6 +213,7 @@ class VehicleListService:
         is_bid: bool,
         load_id: int | None,
         params: VehicleListParams,
+        filters: VehicleFilter,
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
@@ -279,6 +284,8 @@ class VehicleListService:
             is_on_load_col.label("is_on_load"),
         ]
 
+        filter_conditions = filters.conditions()
+
         if is_bid:
             sky = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
             is_requested = (Vehicle.id == vehicle_id) if vehicle_id is not None else literal(False)
@@ -289,6 +296,8 @@ class VehicleListService:
                 is_requested.label("is_requested_vehicle"),
                 *common_cols,
             ).where(base_filter())
+            if filter_conditions:
+                sel = sel.where(*filter_conditions)
             if effective_radius is not None:
                 sel = sel.where(
                     or_(
@@ -346,6 +355,10 @@ class VehicleListService:
             Vehicle.planned_address.is_not(None),
             Vehicle.planned_address != "",
         )
+
+        if filter_conditions:
+            cur = cur.where(*filter_conditions)
+            pln = pln.where(*filter_conditions)
 
         if effective_radius is not None:
             cur = cur.where(

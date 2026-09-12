@@ -72,6 +72,8 @@ async def list_vehicles(
         count, results = await service.list(params, filters)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        await service.close()
 
     base_url = request.url
     forwarded_proto = request.headers.get("x-forwarded-proto")

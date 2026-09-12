@@ -8,6 +8,11 @@ _GEOCODE_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json"
 class MapService:
     def __init__(self, token: str | None = None) -> None:
         self.token = token
+        self.client = httpx.AsyncClient(timeout=10) if token else None
+
+    async def close(self) -> None:
+        if self.client is not None:
+            await self.client.aclose()
 
     async def get_coordinates(self, address: str) -> tuple[float | None, float | None]:
         """Return ``(longitude, latitude)`` for an address, or ``(None, None)``."""
@@ -15,14 +20,12 @@ class MapService:
             return None, None
 
         params = {"access_token": self.token, "limit": 1}
+        if self.client is None:
+            return None, None
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    _GEOCODE_URL.format(query=address),
-                    params=params,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await self.client.get(_GEOCODE_URL.format(query=address), params=params)
+            resp.raise_for_status()
+            data = resp.json()
         except httpx.HTTPError:
             return None, None
 
@@ -37,13 +40,12 @@ class MapService:
         if not self.token or not zip_code:
             return None
         params = {"access_token": self.token, "limit": 1, "types": "postcode"}
+        if self.client is None:
+            return None
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    _GEOCODE_URL.format(query=zip_code), params=params
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await self.client.get(_GEOCODE_URL.format(query=zip_code), params=params)
+            resp.raise_for_status()
+            data = resp.json()
         except httpx.HTTPError:
             return None
         features = data.get("features") or []
