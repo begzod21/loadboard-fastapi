@@ -70,6 +70,33 @@ def _geo_box(lat_col, lon_col, lat: float, lon: float, radius: float):
 
 def _vehicle_load_options():
     return (
+        load_only(
+            Vehicle.id,
+            Vehicle.object_id,
+            Vehicle.owner_company_id,
+            Vehicle.driver_id,
+            Vehicle.second_driver_id,
+            Vehicle.type_id,
+            Vehicle.team_id,
+            Vehicle.status,
+            Vehicle.last_address,
+            Vehicle.last_geo_date_time,
+            Vehicle.notes,
+            Vehicle.created_at,
+            Vehicle.updated_at,
+            Vehicle.useful_cargo_length,
+            Vehicle.useful_cargo_width,
+            Vehicle.useful_cargo_height,
+            Vehicle.payload_lbs,
+            Vehicle.door_width,
+            Vehicle.door_height,
+            Vehicle.planned_address,
+            Vehicle.planned_date_time,
+            Vehicle.latitude,
+            Vehicle.longitude,
+            Vehicle.planned_latitude,
+            Vehicle.planned_longitude,
+        ),
         joinedload(Vehicle.owner_company).load_only(
             OwnerCompany.id,
             OwnerCompany.company_name,

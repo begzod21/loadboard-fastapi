@@ -18,6 +18,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Warming up database connection pool")
