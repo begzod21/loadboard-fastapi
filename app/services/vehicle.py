@@ -11,7 +11,6 @@ Reproduces the Django behaviour:
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 from sqlalchemy import (
@@ -27,12 +26,12 @@ from sqlalchemy import (
     case,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, selectinload
+from sqlalchemy.orm import selectinload
 
 from ..core.security import CurrentUser
 from ..filters.vehicle import VehicleFilter
 from ..models.load import Bid, ConfirmedLoad, DriverBid, Load
-from ..models.vehicle import Driver, Equipment, OwnerCompany, Team, Vehicle, VehicleType
+from ..models.vehicle import Vehicle, VehicleType
 from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
@@ -50,86 +49,6 @@ def _haversine(lat_col, lon_col, lat: float, lon: float):
     )
     clamped = func.least(1, func.greatest(-1, inner))
     return cast(EARTH_RADIUS_MILES * func.acos(clamped), Float)
-
-
-def _geo_box(lat_col, lon_col, lat: float, lon: float, radius: float):
-    """Reduce trig work by filtering to a conservative coordinate box first."""
-    lat_delta = radius / 69.0
-    clauses = [
-        lat_col.is_not(None),
-        lon_col.is_not(None),
-        lat_col.between(max(-90.0, lat - lat_delta), min(90.0, lat + lat_delta)),
-    ]
-    cos_lat = abs(math.cos(math.radians(lat)))
-    if cos_lat > 1e-6:
-        lon_delta = radius / (69.0 * cos_lat)
-        if lon_delta < 180:
-            clauses.append(lon_col.between(lon - lon_delta, lon + lon_delta))
-    return and_(*clauses)
-
-
-def _vehicle_load_options():
-    return (
-        load_only(
-            Vehicle.id,
-            Vehicle.object_id,
-            Vehicle.owner_company_id,
-            Vehicle.driver_id,
-            Vehicle.second_driver_id,
-            Vehicle.type_id,
-            Vehicle.team_id,
-            Vehicle.status,
-            Vehicle.last_address,
-            Vehicle.last_geo_date_time,
-            Vehicle.notes,
-            Vehicle.created_at,
-            Vehicle.updated_at,
-            Vehicle.useful_cargo_length,
-            Vehicle.useful_cargo_width,
-            Vehicle.useful_cargo_height,
-            Vehicle.payload_lbs,
-            Vehicle.door_width,
-            Vehicle.door_height,
-            Vehicle.planned_address,
-            Vehicle.planned_date_time,
-            Vehicle.latitude,
-            Vehicle.longitude,
-            Vehicle.planned_latitude,
-            Vehicle.planned_longitude,
-        ),
-        joinedload(Vehicle.owner_company).load_only(
-            OwnerCompany.id,
-            OwnerCompany.company_name,
-            OwnerCompany.company_phone,
-            OwnerCompany.company_applicant_first_name,
-            OwnerCompany.company_applicant_last_name,
-        ),
-        joinedload(Vehicle.driver).load_only(
-            Driver.id,
-            Driver.full_name,
-            Driver.citizenship,
-            Driver.phone,
-            Driver.address,
-            Driver.birth,
-            Driver.email,
-        ),
-        joinedload(Vehicle.second_driver).load_only(
-            Driver.id,
-            Driver.full_name,
-            Driver.citizenship,
-            Driver.phone,
-            Driver.address,
-            Driver.birth,
-            Driver.email,
-        ),
-        joinedload(Vehicle.type).load_only(VehicleType.id, VehicleType.name),
-        joinedload(Vehicle.team).load_only(Team.id, Team.name),
-        selectinload(Vehicle.equipment).load_only(
-            Equipment.id,
-            Equipment.name,
-            Equipment.short_name,
-        ),
-    )
 
 
 @dataclass
@@ -158,9 +77,6 @@ class VehicleListService:
         self.team_ids = user.team_ids
         self.map_service = MapService(mapbox_token)
 
-    async def close(self) -> None:
-        await self.map_service.close()
-
     async def list(
         self, params: VehicleListParams, filters: VehicleFilter
     ) -> tuple[int, list[VehicleSchema]]:
@@ -169,68 +85,46 @@ class VehicleListService:
 
         if params.address:
             longitude, latitude = await self.map_service.get_coordinates(params.address)
-            if longitude is None or latitude is None:
+            if longitude is None and latitude is None:
                 return 0, []
 
         driver_bid_vehicle_ids: list[int] = []
         vehicle_id: int | None = None
-        load_data = None
+        load: Load | None = None
 
         if params.load_id:
-            load_data = (
-                await self.session.execute(
-                    select(
-                        Load.id,
-                        Load.pick_up_longitude,
-                        Load.pick_up_latitude,
-                        Load.vehicle_type,
-                        Load.weight,
-                    ).where(Load.id == params.load_id)
-                )
-            ).mappings().first()
-            if load_data is None:
+            load = await self.session.get(Load, params.load_id)
+            if load is None:
                 raise LookupError(f"Load not found! ID: {params.load_id}")
-            if load_data["pick_up_longitude"] is not None and load_data["pick_up_latitude"] is not None:
-                longitude = float(load_data["pick_up_longitude"])
-                latitude = float(load_data["pick_up_latitude"])
+            if load.pick_up_longitude is not None and load.pick_up_latitude is not None:
+                longitude = float(load.pick_up_longitude)
+                latitude = float(load.pick_up_latitude)
+            driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id)
 
         if params.bid_id:
-            bid_data = (
-                await self.session.execute(
-                    select(Bid.vehicle_id, Bid.load_id).where(Bid.id == params.bid_id)
-                )
-            ).mappings().first()
-            if bid_data is None:
+            bid = await self.session.get(Bid, params.bid_id)
+            if bid is None:
                 raise LookupError(f"Bid not found! ID: {params.bid_id}")
-            if not bid_data["load_id"]:
+            if not bid.load_id:
                 raise LookupError("This bid has no Load!")
-            load_data = (
-                await self.session.execute(
-                    select(
-                        Load.pick_up_longitude,
-                        Load.pick_up_latitude,
-                        Load.vehicle_type,
-                        Load.weight,
-                    ).where(Load.id == bid_data["load_id"])
-                )
-            ).mappings().first()
-            if load_data and load_data["pick_up_longitude"] is not None and load_data["pick_up_latitude"] is not None:
-                longitude = float(load_data["pick_up_longitude"])
-                latitude = float(load_data["pick_up_latitude"])
-            vehicle_id = bid_data["vehicle_id"]
+            load = await self.session.get(Load, bid.load_id)
+            if load and load.pick_up_longitude is not None and load.pick_up_latitude is not None:
+                longitude = float(load.pick_up_longitude)
+                latitude = float(load.pick_up_latitude)
+            vehicle_id = bid.vehicle_id
 
         matching_vehicle_type: str | None = None
         matching_weight: int | None = None
-        if params.has_matching_vehicles and load_data is not None:
-            if load_data["vehicle_type"]:
-                matching_vehicle_type = load_data["vehicle_type"]
-            if load_data["weight"] is not None:
-                matching_weight = load_data["weight"]
+        if params.has_matching_vehicles and load is not None:
+            if load.vehicle_type:
+                matching_vehicle_type = load.vehicle_type
+            if load.weight is not None:
+                matching_weight = load.weight
 
         if latitude is not None and longitude is not None:
             radius = params.radius if params.radius is not None else -1
             if not params.load_id and params.bid_id:
-                load_id = bid_data["load_id"] if bid_data else None
+                load_id = bid.load_id if bid else None
             else:
                 load_id = params.load_id
             return await self._distance_list(
@@ -242,7 +136,6 @@ class VehicleListService:
                 bool(params.bid_id),
                 load_id,
                 params,
-                filters,
                 matching_vehicle_type,
                 matching_weight,
             )
@@ -283,7 +176,7 @@ class VehicleListService:
             .order_by(Vehicle.id.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(*_vehicle_load_options())
+            .options(selectinload(Vehicle.equipment))
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
@@ -299,7 +192,6 @@ class VehicleListService:
         is_bid: bool,
         load_id: int | None,
         params: VehicleListParams,
-        filters: VehicleFilter,
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
@@ -326,19 +218,7 @@ class VehicleListService:
                 ConfirmedLoad.is_deleted.is_(False),
             )
         )
-        driver_bid_exists = exists(
-            select(DriverBid.id).where(
-                DriverBid.vehicle_id == Vehicle.id,
-                DriverBid.load_id == load_id,
-                DriverBid.vehicle_id.is_not(None),
-                DriverBid.is_deleted.is_(False),
-            )
-        ) if load_id else literal(False)
-        is_dbv = (
-            driver_bid_exists
-            if not driver_bid_vehicle_ids
-            else Vehicle.id.in_(driver_bid_vehicle_ids)
-        )
+        is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
 
         def base_filter():
             cond = and_(
@@ -382,8 +262,6 @@ class VehicleListService:
             is_on_load_col.label("is_on_load"),
         ]
 
-        filter_conditions = filters.conditions()
-
         if is_bid:
             sky = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
             is_requested = (Vehicle.id == vehicle_id) if vehicle_id is not None else literal(False)
@@ -394,16 +272,6 @@ class VehicleListService:
                 is_requested.label("is_requested_vehicle"),
                 *common_cols,
             ).where(base_filter())
-            if filter_conditions:
-                sel = sel.where(*filter_conditions)
-            if effective_radius is not None:
-                sel = sel.where(
-                    or_(
-                        is_requested,
-                        is_dbv,
-                        _geo_box(Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius),
-                    )
-                )
             tf = team_filter()
             if tf is not None:
                 sel = sel.where(tf)
@@ -454,18 +322,6 @@ class VehicleListService:
             Vehicle.planned_address != "",
         )
 
-        if filter_conditions:
-            cur = cur.where(*filter_conditions)
-            pln = pln.where(*filter_conditions)
-
-        if effective_radius is not None:
-            cur = cur.where(
-                or_(is_dbv, _geo_box(Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius))
-            )
-            pln = pln.where(
-                or_(is_dbv, _geo_box(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon, effective_radius))
-            )
-
         tf = team_filter()
         if tf is not None:
             cur = cur.where(tf)
@@ -491,18 +347,14 @@ class VehicleListService:
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
+        count = await self.session.scalar(
+            select(func.count()).select_from(ordered_stmt.subquery())
+        )
         page_stmt = ordered_stmt.offset(
             (params.page - 1) * params.page_size
         ).limit(params.page_size)
-        rows = (await self.session.execute(page_stmt)).mappings().all()
 
-        count_source = ordered_stmt.order_by(None).with_only_columns(
-            ordered_stmt.selected_columns[0],
-            maintain_column_froms=True,
-        )
-        count = await self.session.scalar(
-            select(func.count()).select_from(count_source.subquery())
-        )
+        rows = (await self.session.execute(page_stmt)).mappings().all()
         if not rows:
             return int(count or 0), []
 
@@ -513,7 +365,7 @@ class VehicleListService:
             await self.session.scalars(
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
-                .options(*_vehicle_load_options())
+                .options(selectinload(Vehicle.equipment))
             )
         ).unique().all()
         by_id = {v.id: v for v in vehicles}
