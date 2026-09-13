@@ -21,7 +21,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(BrotliMiddleware, quality=8, mode="text", minimum_size=1024)
+app.add_middleware(
+    BrotliMiddleware,
+    quality=4,
+    mode="text",
+    minimum_size=1024,
+    excluded_handlers=[r"^/(?!app/api/owner/vehicle/list/?$).*$"],
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
