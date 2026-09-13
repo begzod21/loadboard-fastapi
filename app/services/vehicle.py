@@ -169,7 +169,7 @@ class VehicleListService:
 
         if params.address:
             longitude, latitude = await self.map_service.get_coordinates(params.address)
-            if longitude is None and latitude is None:
+            if longitude is None or latitude is None:
                 return 0, []
 
         driver_bid_vehicle_ids: list[int] = []

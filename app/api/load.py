@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import ORJSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser, get_current_user
@@ -70,6 +66,5 @@ async def retrieve_load(
     load = await service.get(load_id)
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
-    content = await asyncio.to_thread(jsonable_encoder, load)
-    return ORJSONResponse(content=content)  # type: ignore[return-value]
+    return load
 

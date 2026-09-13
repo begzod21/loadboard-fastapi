@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser, get_current_user
@@ -21,7 +17,7 @@ async def list_vehicles(
     request: Request,
     latitude: float | None = Query(default=None, description="Latitude of the location"),
     longitude: float | None = Query(default=None, description="Longitude of the location"),
-    radius: float | None = Query(default=None, description="Radius in miles"),
+    radius: float | None = Query(default=None, ge=0, description="Radius in miles"),
     address: str | None = Query(default=None, description="Address to search nearby vehicles"),
     load_id: int | None = Query(default=None, description="ID of the load for location lookup"),
     bid_id: int | None = Query(default=None, description="ID of the bid for location lookup"),
@@ -94,5 +90,4 @@ async def list_vehicles(
         previous=prev_url,
         results=results,
     )
-    content = await asyncio.to_thread(jsonable_encoder, response)
-    return ORJSONResponse(content=content)  # type: ignore[return-value]
+    return response

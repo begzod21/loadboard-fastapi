@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser
@@ -119,7 +119,10 @@ class LoadListService:
             .order_by(Load.received_date.desc())
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(selectinload(Load.vehicle_teams))
+            .options(
+                joinedload(Load.broker_company),
+                selectinload(Load.vehicle_teams),
+            )
         )
         rows = (await self.session.execute(stmt)).unique().all()
 
@@ -148,7 +151,10 @@ class LoadDetailService:
         load = await self.session.scalar(
             select(Load)
             .where(Load.id == load_id, Load.is_deleted.is_(False))
-            .options(selectinload(Load.points))
+            .options(
+                joinedload(Load.broker_company),
+                selectinload(Load.points),
+            )
         )
         if load is None:
             return None

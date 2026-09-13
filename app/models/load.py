@@ -98,7 +98,7 @@ class Load(Base):
         ForeignKey("broker_brokercompany.id")
     )
 
-    broker_company: Mapped[BrokerCompany | None] = relationship(lazy="joined")
+    broker_company: Mapped[BrokerCompany | None] = relationship(lazy="raise")
     vehicle_teams: Mapped[list["Team"]] = relationship(  # noqa: F821
         "Team", secondary=load_vehicle_teams, lazy="raise"
     )
