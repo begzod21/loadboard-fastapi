@@ -267,7 +267,7 @@ class LoadDetailService:
 
             bid_info = result or None
 
-        await self._mark_read(load_id)
+        # await self._mark_read(load_id)
 
         return LoadDetailSchema.from_load(
             load,
