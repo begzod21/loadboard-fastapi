@@ -493,20 +493,18 @@ class VehicleListService:
     async def _materialise(self, ordered_stmt, params):
         page_stmt = ordered_stmt.offset(
             (params.page - 1) * params.page_size
-        ).limit(params.page_size).add_columns(func.count().over().label("_total_count"))
-
+        ).limit(params.page_size)
         rows = (await self.session.execute(page_stmt)).mappings().all()
-        if not rows:
-            count_source = ordered_stmt.order_by(None).with_only_columns(
-                ordered_stmt.selected_columns[0],
-                maintain_column_froms=True,
-            )
-            count = await self.session.scalar(
-                select(func.count()).select_from(count_source.subquery())
-            )
-            return int(count or 0), []
 
-        count = rows[0]["_total_count"]
+        count_source = ordered_stmt.order_by(None).with_only_columns(
+            ordered_stmt.selected_columns[0],
+            maintain_column_froms=True,
+        )
+        count = await self.session.scalar(
+            select(func.count()).select_from(count_source.subquery())
+        )
+        if not rows:
+            return int(count or 0), []
 
         id_key = "vid" if "vid" in rows[0] else "id"
         vids = [row[id_key] for row in rows]
