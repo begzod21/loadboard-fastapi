@@ -17,7 +17,7 @@ async def list_vehicles(
     request: Request,
     latitude: float | None = Query(default=None, description="Latitude of the location"),
     longitude: float | None = Query(default=None, description="Longitude of the location"),
-    radius: float | None = Query(default=None, ge=0, description="Radius in miles"),
+    radius: float | None = Query(default=None, description="Radius in miles"),
     address: str | None = Query(default=None, description="Address to search nearby vehicles"),
     load_id: int | None = Query(default=None, description="ID of the load for location lookup"),
     bid_id: int | None = Query(default=None, description="ID of the bid for location lookup"),
@@ -46,10 +46,11 @@ async def list_vehicles(
         else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
     )
 
-    try:
-        vehicle_ids_list = [int(v.strip()) for v in vehicle_ids.split(",") if v.strip()] if vehicle_ids else []
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="vehicle_ids must be comma-separated integers") from exc
+    vehicle_ids_list = (
+        [int(v) for v in vehicle_ids.split(",") if v.strip()]
+        if vehicle_ids
+        else []
+    )
     params = VehicleListParams(
         latitude=latitude,
         longitude=longitude,
@@ -72,8 +73,6 @@ async def list_vehicles(
         count, results = await service.list(params, filters)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    finally:
-        await service.close()
 
     base_url = request.url
     forwarded_proto = request.headers.get("x-forwarded-proto")
@@ -84,10 +83,9 @@ async def list_vehicles(
     next_url = str(base_url.include_query_params(page=page + 1)) if has_next else None
     prev_url = str(base_url.include_query_params(page=page - 1)) if page > 1 else None
 
-    response = PaginatedVehicles(
+    return PaginatedVehicles(
         count=count,
         next=next_url,
         previous=prev_url,
         results=results,
     )
-    return response
