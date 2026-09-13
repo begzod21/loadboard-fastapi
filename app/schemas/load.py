@@ -229,7 +229,7 @@ class LoadDetailSchema(BaseModel):
 
         return cls(
             id=load.id,
-            default_message_on_bid=default_message_on_bid,
+            # default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,
@@ -257,7 +257,7 @@ class LoadDetailSchema(BaseModel):
             bid_info=bid_info,
             order_number=load.order_number,
             bid_link=load.bid_link,
-            # points=[LoadPointSchema.model_validate(p) for p in load.points],
+            points=[LoadPointSchema.model_validate(p) for p in load.points],
             broker_notes=load.broker_company.notes if load.broker_company else None,
             map_url=map_url,
         )
