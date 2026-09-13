@@ -97,8 +97,28 @@ class _ThreadPoolGZipResponder(GZipResponder):
 class GZipMiddleware(_StarletteGZipMiddleware):
     """Drop-in replacement that performs compression off the event loop."""
 
+    def __init__(
+        self,
+        app,
+        minimum_size: int = 500,
+        compresslevel: int = 9,
+        include_paths: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(
+            app,
+            minimum_size=minimum_size,
+            compresslevel=compresslevel,
+        )
+        self.include_paths = include_paths
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":  # pragma: no cover
+            await self.app(scope, receive, send)
+            return
+
+        if self.include_paths and not any(
+            scope.get("path", "").startswith(path) for path in self.include_paths
+        ):
             await self.app(scope, receive, send)
             return
 

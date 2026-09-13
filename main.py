@@ -39,7 +39,12 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-app.add_middleware(GZipMiddleware, compresslevel=4, minimum_size=1024)
+app.add_middleware(
+    GZipMiddleware,
+    compresslevel=4,
+    minimum_size=1024,
+    include_paths=("/app/api/owner/vehicle/list/",),
+)
 _cors_origins = settings.cors_origin_list
 app.add_middleware(
     CORSMiddleware,
