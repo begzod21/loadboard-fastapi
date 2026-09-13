@@ -58,12 +58,19 @@ async def list_loads(
 async def retrieve_load(
     request: Request,
     load_id: int,
+    include_default_message: bool = Query(
+        default=True,
+        description="Include the company HTML bid template in the response",
+    ),
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> LoadDetailSchema:
     tenant = getattr(request.state, "tenant", None)
     service = LoadDetailService(session, user, tenant=tenant)
-    load = await service.get(load_id)
+    load = await service.get(
+        load_id,
+        include_default_message=include_default_message,
+    )
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     return load

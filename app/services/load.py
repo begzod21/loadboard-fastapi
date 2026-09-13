@@ -147,6 +147,7 @@ class LoadDetailService:
     async def get(
             self, 
             load_id: int,
+            include_default_message: bool = True,
         ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
@@ -268,7 +269,12 @@ class LoadDetailService:
 
         await self._mark_read(load_id)
 
-        return LoadDetailSchema.from_load(load, bid_info=bid_info, company_data=company_data)
+        return LoadDetailSchema.from_load(
+            load,
+            bid_info=bid_info,
+            company_data=company_data,
+            include_default_message=include_default_message,
+        )
     
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:

@@ -3,13 +3,18 @@ from __future__ import annotations
 import datetime
 import decimal
 import re
+from functools import lru_cache
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models.load import Load
 
 
-def _build_default_message_on_bid(bid_message: object | None, mc_number: object | None) -> str | None:
+@lru_cache(maxsize=256)
+def _build_default_message_on_bid(
+    bid_message: str | None,
+    mc_number: str | None,
+) -> str | None:
     if not bid_message:
         return None
 
@@ -207,11 +212,15 @@ class LoadDetailSchema(BaseModel):
         *,
         bid_info: list[BidInfoSchema] | None = None,
         company_data = None,
+        include_default_message: bool = True,
     ) -> "LoadDetailSchema":
         default_message_on_bid = None
-        if company_data is not None:
+        if include_default_message and company_data is not None:
             bid_message, mc_number = _extract_company_message_data(company_data)
-            default_message_on_bid = _build_default_message_on_bid(bid_message, mc_number)
+            default_message_on_bid = _build_default_message_on_bid(
+                str(bid_message) if bid_message is not None else None,
+                str(mc_number) if mc_number is not None else None,
+            )
 
         coords = (
             load.pick_up_latitude,
@@ -229,7 +238,7 @@ class LoadDetailSchema(BaseModel):
 
         return cls(
             id=load.id,
-            # default_message_on_bid=default_message_on_bid,
+            default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,
