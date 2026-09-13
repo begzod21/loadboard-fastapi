@@ -116,17 +116,17 @@ class Vehicle(Base):
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
-    owner_company: Mapped[OwnerCompany | None] = relationship(lazy="raise")
+    owner_company: Mapped[OwnerCompany | None] = relationship(lazy="joined")
     driver: Mapped[Driver | None] = relationship(
-        foreign_keys=[driver_id], lazy="raise"
+        foreign_keys=[driver_id], lazy="joined"
     )
     second_driver: Mapped[Driver | None] = relationship(
-        foreign_keys=[second_driver_id], lazy="raise"
+        foreign_keys=[second_driver_id], lazy="joined"
     )
-    type: Mapped[VehicleType | None] = relationship(lazy="raise")
-    team: Mapped[Team | None] = relationship(lazy="raise")
+    type: Mapped[VehicleType | None] = relationship(lazy="joined")
+    team: Mapped[Team | None] = relationship(lazy="joined")
     equipment: Mapped[list[Equipment]] = relationship(
-        secondary=vehicle_equipment, lazy="raise"
+        secondary=vehicle_equipment, lazy="selectin"
     )
 
     @property
