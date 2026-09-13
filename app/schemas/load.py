@@ -142,9 +142,22 @@ class BidInfoSchema(BaseModel):
     broker_price: float | None = 0
 
 
+class DefaultMessageOnBidSchema(BaseModel):
+    default_message_on_bid: str | None = None
+
+    @classmethod
+    def from_company(cls, company_data: object | None) -> "DefaultMessageOnBidSchema":
+        bid_message, mc_number = _extract_company_message_data(company_data)
+        return cls(
+            default_message_on_bid=_build_default_message_on_bid(
+                str(bid_message) if bid_message is not None else None,
+                str(mc_number) if mc_number is not None else None,
+            )
+        )
+
+
 class LoadDetailSchema(BaseModel):
     id: int
-    default_message_on_bid: str | None = None
     pick_up_at: str | None = None
     pick_up_date_raw: str | None = None
     deliver_to: str | None = None
@@ -211,17 +224,7 @@ class LoadDetailSchema(BaseModel):
         load: Load,
         *,
         bid_info: list[BidInfoSchema] | None = None,
-        company_data = None,
-        include_default_message: bool = True,
     ) -> "LoadDetailSchema":
-        default_message_on_bid = None
-        if include_default_message and company_data is not None:
-            bid_message, mc_number = _extract_company_message_data(company_data)
-            default_message_on_bid = _build_default_message_on_bid(
-                str(bid_message) if bid_message is not None else None,
-                str(mc_number) if mc_number is not None else None,
-            )
-
         coords = (
             load.pick_up_latitude,
             load.pick_up_longitude,
@@ -238,7 +241,6 @@ class LoadDetailSchema(BaseModel):
 
         return cls(
             id=load.id,
-            default_message_on_bid=default_message_on_bid,
             pick_up_at=load.pick_up_at,
             pick_up_date_raw=load.pick_up_date_raw,
             deliver_to=load.deliver_to,

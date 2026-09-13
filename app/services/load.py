@@ -19,7 +19,11 @@ from ..models.load import (
     load_vehicle_teams,
 )
 from ..models.vehicle import Driver, Vehicle
-from ..schemas.load import LoadListSchema, BidInfoSchema, LoadDetailSchema
+from ..schemas.load import (
+    BidInfoSchema,
+    LoadDetailSchema,
+    LoadListSchema,
+)
 from ..schemas.company import TenantCompanyOut
 from .notify import SenderToWebSocket
 
@@ -147,7 +151,6 @@ class LoadDetailService:
     async def get(
             self, 
             load_id: int,
-            include_default_message: bool = True,
         ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
@@ -169,8 +172,6 @@ class LoadDetailService:
             view_mode = "own"
         else:
             view_mode = None
-
-        company_data = self.tenant
 
         bid_info = None
         if view_mode is not None:
@@ -272,10 +273,8 @@ class LoadDetailService:
         return LoadDetailSchema.from_load(
             load,
             bid_info=bid_info,
-            company_data=company_data,
-            include_default_message=include_default_message,
         )
-    
+
     async def _mark_read(self, load_id: int) -> None:
         if self.user.user_id is None:
             return

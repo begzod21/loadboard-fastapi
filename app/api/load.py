@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.security import CurrentUser, get_current_user
 from ..core.dependencies import get_tenant_db
 from ..filters.load import LoadFilter, load_filter_params
-from ..schemas.load import PaginatedLoads, LoadDetailSchema
-from ..services.load import LoadListParams, LoadListService, LoadDetailService
+from ..schemas.load import (
+    DefaultMessageOnBidSchema,
+    LoadDetailSchema,
+    PaginatedLoads,
+)
+from ..services.load import LoadDetailService, LoadListParams, LoadListService
 
 router = APIRouter(prefix="/app/api", tags=["load"])
 
@@ -54,23 +58,27 @@ async def list_loads(
     )
 
 
+@router.get("/load/default-message-on-bid/", response_model=DefaultMessageOnBidSchema)
+async def get_default_message_on_bid(
+    request: Request,
+    session: AsyncSession = Depends(get_tenant_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> DefaultMessageOnBidSchema:
+    del session, user
+    tenant = getattr(request.state, "tenant", None)
+    return DefaultMessageOnBidSchema.from_company(tenant)
+
+
 @router.get("/load/{load_id}/", response_model=LoadDetailSchema)
 async def retrieve_load(
     request: Request,
     load_id: int,
-    include_default_message: bool = Query(
-        default=True,
-        description="Include the company HTML bid template in the response",
-    ),
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> LoadDetailSchema:
     tenant = getattr(request.state, "tenant", None)
     service = LoadDetailService(session, user, tenant=tenant)
-    load = await service.get(
-        load_id,
-        include_default_message=include_default_message,
-    )
+    load = await service.get(load_id)
     if load is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     return load
