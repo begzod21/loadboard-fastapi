@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from app.core.database import close_db, warmup
 from app.middleware import CORSMiddleware
-from app.middleware.brotli import AsyncBrotliMiddleware
+from brotli_asgi import BrotliMiddleware
 
 
 from app.api import load_router, vehicle_router
@@ -21,12 +21,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    AsyncBrotliMiddleware,
-    quality=1,
-    mode="text",
-    minimum_size=1024,
-)
+app.add_middleware(BrotliMiddleware, quality=8, mode="text", minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
