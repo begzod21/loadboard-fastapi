@@ -58,8 +58,8 @@ async def list_loads(
     )
 
 
-@router.get("/load/default-message-on-bid/", response_model=DefaultMessageOnBidSchema)
-async def get_default_message_on_bid(
+@router.get("/load/bid-message/", response_model=DefaultMessageOnBidSchema)
+async def get_bid_message(
     request: Request,
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),

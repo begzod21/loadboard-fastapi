@@ -143,13 +143,13 @@ class BidInfoSchema(BaseModel):
 
 
 class DefaultMessageOnBidSchema(BaseModel):
-    default_message_on_bid: str | None = None
+    bid_message: str | None = None
 
     @classmethod
     def from_company(cls, company_data: object | None) -> "DefaultMessageOnBidSchema":
         bid_message, mc_number = _extract_company_message_data(company_data)
         return cls(
-            default_message_on_bid=_build_default_message_on_bid(
+            bid_message=_build_default_message_on_bid(
                 str(bid_message) if bid_message is not None else None,
                 str(mc_number) if mc_number is not None else None,
             )
