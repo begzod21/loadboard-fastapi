@@ -23,7 +23,6 @@ from sqlalchemy import (
     or_,
     select,
     union_all,
-    case,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -154,6 +153,8 @@ class VehicleListService:
             Vehicle.registration_status == 4,
             Vehicle.is_deleted.is_(False),
         )
+        if params.vehicle_ids:
+            base = and_(base, Vehicle.id.in_(params.vehicle_ids))
         if matching_vehicle_type:
             base = and_(
                 base,
@@ -226,6 +227,8 @@ class VehicleListService:
                 Vehicle.registration_status == 4,
                 Vehicle.is_deleted.is_(False),
             )
+            if params.vehicle_ids:
+                cond = and_(cond, Vehicle.id.in_(params.vehicle_ids))
             if vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             if matching_vehicle_type:
@@ -248,14 +251,7 @@ class VehicleListService:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             return cond
 
-        priority_vehicle = (
-            Vehicle.id.in_(params.vehicle_ids)
-            if params.vehicle_ids
-            else literal(False)
-        )
-
         common_cols = [
-            priority_vehicle.label("priority_vehicle"),
             is_dbv.label("is_driver_bid_vehicle"),
             dbp.label("driver_bid_price"),
             owner_bid_col.label("owner_bid"),
@@ -284,7 +280,6 @@ class VehicleListService:
                     )
                 )
             ordered = sel.order_by(
-                literal_column_desc("priority_vehicle"),
                 literal_column_desc("is_requested_vehicle"),
                 literal_column_desc("is_driver_bid_vehicle"),
                 literal_column_asc("sky_distance"),
@@ -332,15 +327,10 @@ class VehicleListService:
 
         unioned = union_all(cur, pln).subquery("veh")
 
-        priority_group = case(
-            (unioned.c.priority_vehicle == True, 0),
-            (unioned.c.is_driver_bid_vehicle == True, 1),
-            else_=2,
-        )
         ordered = (
             select(unioned)
             .order_by(
-                priority_group.asc(),
+                unioned.c.is_driver_bid_vehicle.desc(),
                 unioned.c.sky_distance.asc(),
             )
         )
