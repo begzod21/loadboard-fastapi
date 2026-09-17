@@ -227,8 +227,13 @@ class VehicleListService:
                 Vehicle.registration_status == 4,
                 Vehicle.is_deleted.is_(False),
             )
+            allowed = []
             if params.vehicle_ids:
-                cond = and_(cond, Vehicle.id.in_(params.vehicle_ids))
+                allowed.append(Vehicle.id.in_(params.vehicle_ids))
+            if driver_bid_vehicle_ids:
+                allowed.append(Vehicle.id.in_(driver_bid_vehicle_ids))
+            if allowed:
+                cond = and_(cond, or_(*allowed))
             if vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             if matching_vehicle_type:
