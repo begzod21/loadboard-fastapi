@@ -220,6 +220,11 @@ class VehicleListService:
             )
         )
         is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
+        is_selected = (
+            Vehicle.id.in_(params.vehicle_ids)
+            if params.vehicle_ids
+            else literal(False)
+        )
 
         def base_filter():
             cond = and_(
@@ -292,10 +297,10 @@ class VehicleListService:
         sky_cur = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
         sky_pln = _haversine(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon)
         radius_filter_cur = (
-            or_(is_dbv, sky_cur <= effective_radius) if effective_radius is not None else None
+            or_(is_selected, is_dbv, sky_cur <= effective_radius) if effective_radius is not None else None
         )
         radius_filter_pln = (
-            or_(is_dbv, sky_pln <= effective_radius) if effective_radius is not None else None
+            or_(is_selected, is_dbv, sky_pln <= effective_radius) if effective_radius is not None else None
         )
 
         cur = select(
