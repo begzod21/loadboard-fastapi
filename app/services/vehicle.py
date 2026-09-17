@@ -219,7 +219,23 @@ class VehicleListService:
                 ConfirmedLoad.is_deleted.is_(False),
             )
         )
-        is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
+        driver_bid_exists = (
+            exists(
+                select(DriverBid.id).where(
+                    DriverBid.vehicle_id == Vehicle.id,
+                    DriverBid.load_id == load_id,
+                    DriverBid.vehicle_id.is_not(None),
+                    DriverBid.is_deleted.is_(False),
+                )
+            )
+            if load_id
+            else literal(False)
+        )
+        is_dbv = (
+            Vehicle.id.in_(driver_bid_vehicle_ids)
+            if driver_bid_vehicle_ids
+            else driver_bid_exists
+        )
 
         def base_filter():
             cond = and_(
