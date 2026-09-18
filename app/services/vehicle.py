@@ -60,7 +60,7 @@ class VehicleListParams:
     load_id: int | None = None
     bid_id: int | None = None
     vehicle_ids: list[int] = field(default_factory=list)
-    show_all_vehicles: bool = True
+    show_only_selected: bool = False
     has_matching_vehicles: bool = False
     page: int = 1
     page_size: int = 20
@@ -150,13 +150,13 @@ class VehicleListService:
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
-        show_all = params.show_all_vehicles and bool(params.vehicle_ids)
+        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
         base = and_(
             Vehicle.status == 1,
             Vehicle.registration_status == 4,
             Vehicle.is_deleted.is_(False),
         )
-        if params.vehicle_ids and not show_all:
+        if params.vehicle_ids and show_only_selected:
             base = and_(base, Vehicle.id.in_(params.vehicle_ids))
         if matching_vehicle_type:
             base = and_(
@@ -175,7 +175,7 @@ class VehicleListService:
             select(func.count()).select_from(Vehicle).where(where)
         )
         order = []
-        if show_all:
+        if params.vehicle_ids and not show_only_selected:
             order.append(
                 case((Vehicle.id.in_(params.vehicle_ids), 0), else_=1).asc()
             )
@@ -229,7 +229,7 @@ class VehicleListService:
             )
         )
         is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
-        show_all = params.show_all_vehicles and bool(params.vehicle_ids)
+        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
 
         def base_filter():
             cond = and_(
@@ -237,7 +237,7 @@ class VehicleListService:
                 Vehicle.registration_status == 4,
                 Vehicle.is_deleted.is_(False),
             )
-            if params.vehicle_ids and not show_all:
+            if params.vehicle_ids and show_only_selected:
                 if driver_bid_vehicle_ids:
                     cond = and_(
                         cond,
@@ -276,7 +276,7 @@ class VehicleListService:
             owner_bid_col.label("owner_bid"),
             is_on_load_col.label("is_on_load"),
         ]
-        if show_all:
+        if params.vehicle_ids and not show_only_selected:
             common_cols.append(
                 Vehicle.id.in_(params.vehicle_ids).label("is_selected_vehicle")
             )
@@ -303,7 +303,7 @@ class VehicleListService:
                     )
                 )
             bid_order = []
-            if show_all:
+            if params.vehicle_ids and not show_only_selected:
                 bid_order.append(literal_column_desc("is_selected_vehicle"))
             bid_order.extend(
                 [
@@ -357,7 +357,7 @@ class VehicleListService:
         unioned = union_all(cur, pln).subquery("veh")
 
         dist_order = []
-        if show_all:
+        if params.vehicle_ids and not show_only_selected:
             dist_order.append(unioned.c.is_selected_vehicle.desc())
         dist_order.extend(
             [

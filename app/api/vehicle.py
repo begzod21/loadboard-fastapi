@@ -25,11 +25,11 @@ async def list_vehicles(
         None,
         description="Vehicle IDs separated by comma. Example: 535,533,534",
     ),
-    show_all_vehicles: bool = Query(
-        default=True,
+    show_only_selected: bool = Query(
+        default=False,
         description=(
-            "If true, selected vehicle_ids are shown on top together with all "
-            "other vehicles. If false, only the selected vehicle_ids are returned."
+            "If true, only the selected vehicle_ids are returned. If false, "
+            "selected vehicle_ids are shown on top together with all other vehicles."
         ),
     ),
     has_matching_vehicles: bool = Query(
@@ -66,7 +66,7 @@ async def list_vehicles(
         load_id=load_id,
         bid_id=bid_id,
         vehicle_ids=vehicle_ids_list,
-        show_all_vehicles=show_all_vehicles,
+        show_only_selected=show_only_selected,
         has_matching_vehicles=has_matching_vehicles,
         page=page,
         page_size=page_size,
