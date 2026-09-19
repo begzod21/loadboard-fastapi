@@ -38,6 +38,7 @@ class VehicleListParams:
     bid_id: int | None = None
     vehicle_ids: list[int] = field(default_factory=list)
     has_matching_vehicles: bool = False
+    show_only_selected: bool = False
     page: int = 1
     page_size: int = 20
 
