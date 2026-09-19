@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from geoalchemy2 import Geography
 
 from ..core.database import Base
 
@@ -112,6 +113,21 @@ class Vehicle(Base):
     planned_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
     planned_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
     planned_date_time: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    
+    location: Mapped[object | None] = mapped_column(
+        Geography(
+            geometry_type="POINT",
+            srid=4326,
+        ),
+        nullable=True,
+    )
+    planned_location: Mapped[object | None] = mapped_column(
+        Geography(
+            geometry_type="POINT",
+            srid=4326,
+        ),
+        nullable=True,
+    )
 
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
