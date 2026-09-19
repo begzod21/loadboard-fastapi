@@ -1,14 +1,3 @@
-"""Port of ``VehicleListAPIView.get_queryset`` business logic.
-
-Reproduces the Django behaviour:
-
-* plain listing (status=1, registration_status=4) with ``VehicleFilter`` when no
-  coordinates are supplied;
-* proximity search using the Haversine formula (``with_distance`` /
-  ``with_planned_distance``) when a coordinate / address / load_id / bid_id is
-  supplied, including the ``driver_bid_price`` / ``owner_bid`` / ``is_on_load``
-  annotations from ``with_common_annotations`` and team scoping.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,6 +11,7 @@ from sqlalchemy import (
     exists,
     func,
     literal,
+    literal_column,
     or_,
     select,
     union_all,
@@ -36,47 +26,113 @@ from ..models.vehicle import Vehicle, VehicleType
 from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
+
 EARTH_RADIUS_MILES = 3958.756
 MILES_PER_DEGREE_LATITUDE = 69.0
 
+DEFAULT_RADIUS_MILES = 300.0
 
-def _bounding_box(lat_col, lon_col, lat: float, lon: float, radius_miles: float | None):
-    """Square bounding box that contains the radius circle around (lat, lon).
+# Small safety margin for bbox.
+BBOX_MARGIN_DEGREES = 0.05
 
-    Used only as a cheap pre-filter so the database can use a btree index on
-    latitude/longitude before the exact Haversine check. The box is always a
-    superset of the circle, so it never changes the result set.
+
+# ============================================================
+# GEO
+# ============================================================
+
+def _bbox(
+    lat_col,
+    lon_col,
+    lat: float,
+    lon: float,
+    radius_miles: float,
+):
     """
-    if radius_miles is None or radius_miles < 0:
-        return None
-    lat_delta = radius_miles / MILES_PER_DEGREE_LATITUDE
-    # Longitude degrees shrink as latitude moves away from the equator.
-    lon_delta = radius_miles / (
-        MILES_PER_DEGREE_LATITUDE * max(cos(radians(lat)), 0.001)
+    Cheap rectangular pre-filter.
+
+    IMPORTANT:
+    This is NOT the final distance check.
+
+    It only reduces the number of rows for which Haversine
+    has to be calculated.
+    """
+
+    lat_delta = (
+        radius_miles / MILES_PER_DEGREE_LATITUDE
     )
-    # Small safety margin so floating point never clips the circle.
-    lat_delta += 0.25
-    lon_delta += 0.25
+
+    # Avoid expensive / repeated calculations inside SQL.
+    cos_lat = max(
+        abs(cos(radians(lat))),
+        0.01,
+    )
+
+    lon_delta = (
+        radius_miles
+        / (MILES_PER_DEGREE_LATITUDE * cos_lat)
+    )
+
+    lat_delta += BBOX_MARGIN_DEGREES
+    lon_delta += BBOX_MARGIN_DEGREES
+
     return and_(
-        lat_col.between(lat - lat_delta, lat + lat_delta),
-        lon_col.between(lon - lon_delta, lon + lon_delta),
+        lat_col >= lat - lat_delta,
+        lat_col <= lat + lat_delta,
+        lon_col >= lon - lon_delta,
+        lon_col <= lon + lon_delta,
     )
 
 
-def _haversine(lat_col, lon_col, lat: float, lon: float):
-    """SQLAlchemy expression equal to the RawSQL Haversine used by the model."""
-    lat_f = cast(lat_col, Float)
-    lon_f = cast(lon_col, Float)
+def _haversine(
+    lat_col,
+    lon_col,
+    lat: float,
+    lon: float,
+):
+    """
+    Haversine distance in miles.
+
+    BBox MUST be applied before this expression.
+    """
+
+    lat_r = radians(lat)
+    lon_r = radians(lon)
+
+    lat_col_r = func.radians(
+        cast(lat_col, Float)
+    )
+
+    lon_col_r = func.radians(
+        cast(lon_col, Float)
+    )
+
     inner = (
-        func.cos(func.radians(lat)) * func.cos(func.radians(lat_f))
-        * func.cos(func.radians(lon_f) - func.radians(lon))
-        + func.sin(func.radians(lat)) * func.sin(func.radians(lat_f))
+        func.cos(lat_r)
+        * func.cos(lat_col_r)
+        * func.cos(lon_col_r - lon_r)
+        + func.sin(lat_r)
+        * func.sin(lat_col_r)
     )
-    clamped = func.least(1, func.greatest(-1, inner))
-    return cast(EARTH_RADIUS_MILES * func.acos(clamped), Float)
+
+    return (
+        EARTH_RADIUS_MILES
+        * func.acos(
+            func.least(
+                1.0,
+                func.greatest(
+                    -1.0,
+                    inner,
+                ),
+            )
+        )
+    )
 
 
-@dataclass
+# ============================================================
+# PARAMS
+# ============================================================
+
+@dataclass(slots=True)
 class VehicleListParams:
     latitude: float | None = None
     longitude: float | None = None
@@ -84,14 +140,24 @@ class VehicleListParams:
     radius: float | None = None
     load_id: int | None = None
     bid_id: int | None = None
-    vehicle_ids: list[int] = field(default_factory=list)
+
+    vehicle_ids: list[int] = field(
+        default_factory=list
+    )
+
     show_only_selected: bool = False
     has_matching_vehicles: bool = False
+
     page: int = 1
     page_size: int = 20
 
 
+# ============================================================
+# SERVICE
+# ============================================================
+
 class VehicleListService:
+
     def __init__(
         self,
         session: AsyncSession,
@@ -100,380 +166,1048 @@ class VehicleListService:
     ) -> None:
         self.session = session
         self.user = user
-        self.team_ids = user.team_ids
-        self.map_service = MapService(mapbox_token)
+        self.team_ids = user.team_ids or []
+
+        self.map_service = MapService(
+            mapbox_token
+        )
+
+    # ========================================================
+    # PUBLIC
+    # ========================================================
 
     async def list(
-        self, params: VehicleListParams, filters: VehicleFilter
+        self,
+        params: VehicleListParams,
+        filters: VehicleFilter,
     ) -> tuple[int, list[VehicleSchema]]:
+
         latitude = params.latitude
         longitude = params.longitude
 
+        # ----------------------------------------------------
+        # Address
+        # ----------------------------------------------------
+
         if params.address:
-            longitude, latitude = await self.map_service.get_coordinates(params.address)
-            if longitude is None and latitude is None:
-                return 0, []
 
-        driver_bid_vehicle_ids: list[int] = []
-        vehicle_id: int | None = None
-        load: Load | None = None
-
-        if params.load_id:
-            load = await self.session.get(Load, params.load_id)
-            if load is None:
-                raise LookupError(f"Load not found! ID: {params.load_id}")
-            if load.pick_up_longitude is not None and load.pick_up_latitude is not None:
-                longitude = float(load.pick_up_longitude)
-                latitude = float(load.pick_up_latitude)
-            driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id)
-
-        if params.bid_id:
-            bid = await self.session.get(Bid, params.bid_id)
-            if bid is None:
-                raise LookupError(f"Bid not found! ID: {params.bid_id}")
-            if not bid.load_id:
-                raise LookupError("This bid has no Load!")
-            load = await self.session.get(Load, bid.load_id)
-            if load and load.pick_up_longitude is not None and load.pick_up_latitude is not None:
-                longitude = float(load.pick_up_longitude)
-                latitude = float(load.pick_up_latitude)
-            vehicle_id = bid.vehicle_id
-
-        matching_vehicle_type: str | None = None
-        matching_weight: int | None = None
-        if params.has_matching_vehicles and load is not None:
-            if load.vehicle_type:
-                matching_vehicle_type = load.vehicle_type
-            if load.weight is not None:
-                matching_weight = load.weight
-
-        if latitude is not None and longitude is not None:
-            radius = params.radius if params.radius is not None else -1
-            if not params.load_id and params.bid_id:
-                load_id = bid.load_id if bid else None
-            else:
-                load_id = params.load_id
-            return await self._distance_list(
-                float(latitude),
-                float(longitude),
-                radius,
-                vehicle_id,
-                driver_bid_vehicle_ids,
-                bool(params.bid_id),
-                load_id,
-                params,
-                matching_vehicle_type,
-                matching_weight,
+            longitude, latitude = (
+                await self.map_service.get_coordinates(
+                    params.address
+                )
             )
 
-        return await self._plain_list(filters, params, matching_vehicle_type, matching_weight)
+            if (
+                longitude is None
+                or latitude is None
+            ):
+                return 0, []
+
+        # ----------------------------------------------------
+        # Load / Bid
+        # ----------------------------------------------------
+
+        load: Load | None = None
+        vehicle_id: int | None = None
+
+        if params.load_id:
+
+            load = await self.session.get(
+                Load,
+                params.load_id,
+            )
+
+            if load is None:
+                raise LookupError(
+                    f"Load not found! ID: {params.load_id}"
+                )
+
+            if (
+                load.pick_up_latitude is not None
+                and load.pick_up_longitude is not None
+            ):
+                latitude = float(
+                    load.pick_up_latitude
+                )
+                longitude = float(
+                    load.pick_up_longitude
+                )
+
+        if params.bid_id:
+
+            bid = await self.session.get(
+                Bid,
+                params.bid_id,
+            )
+
+            if bid is None:
+                raise LookupError(
+                    f"Bid not found! ID: {params.bid_id}"
+                )
+
+            if not bid.load_id:
+                raise LookupError(
+                    "This bid has no Load!"
+                )
+
+            load = await self.session.get(
+                Load,
+                bid.load_id,
+            )
+
+            vehicle_id = bid.vehicle_id
+
+            if load is not None:
+
+                if (
+                    load.pick_up_latitude
+                    is not None
+                    and load.pick_up_longitude
+                    is not None
+                ):
+                    latitude = float(
+                        load.pick_up_latitude
+                    )
+                    longitude = float(
+                        load.pick_up_longitude
+                    )
+
+        # ----------------------------------------------------
+        # Matching
+        # ----------------------------------------------------
+
+        matching_vehicle_type = None
+        matching_weight = None
+
+        if (
+            params.has_matching_vehicles
+            and load is not None
+        ):
+
+            matching_vehicle_type = (
+                load.vehicle_type
+                if load.vehicle_type
+                else None
+            )
+
+            matching_weight = (
+                load.weight
+                if load.weight is not None
+                else None
+            )
+
+        # ----------------------------------------------------
+        # No coordinates
+        # ----------------------------------------------------
+
+        if (
+            latitude is None
+            or longitude is None
+        ):
+            return await self._plain_list(
+                filters=filters,
+                params=params,
+                matching_vehicle_type=(
+                    matching_vehicle_type
+                ),
+                matching_weight=matching_weight,
+            )
+
+        # ----------------------------------------------------
+        # Radius
+        # ----------------------------------------------------
+
+        radius = (
+            DEFAULT_RADIUS_MILES
+            if params.radius is None
+            or params.radius < 0
+            else params.radius
+        )
+
+        if radius <= 0:
+            radius = DEFAULT_RADIUS_MILES
+
+        load_id = (
+            params.load_id
+            if params.load_id
+            else (
+                load.id
+                if params.bid_id
+                and load is not None
+                else None
+            )
+        )
+
+        return await self._distance_list(
+            lat=float(latitude),
+            lon=float(longitude),
+            radius=radius,
+            vehicle_id=vehicle_id,
+            is_bid=params.bid_id is not None,
+            load_id=load_id,
+            params=params,
+            matching_vehicle_type=(
+                matching_vehicle_type
+            ),
+            matching_weight=matching_weight,
+        )
+
+    # ========================================================
+    # BASE FILTER
+    # ========================================================
+
+    def _base_filter(
+        self,
+        params: VehicleListParams,
+        matching_vehicle_type: str | None,
+        matching_weight: int | None,
+    ):
+
+        conditions = [
+            Vehicle.status == 1,
+            Vehicle.registration_status == 4,
+            Vehicle.is_deleted.is_(False),
+        ]
+
+        show_only_selected = (
+            params.show_only_selected
+            and bool(params.vehicle_ids)
+        )
+
+        if show_only_selected:
+
+            conditions.append(
+                Vehicle.id.in_(
+                    params.vehicle_ids
+                )
+            )
+
+        if matching_vehicle_type:
+
+            conditions.append(
+                Vehicle.type.has(
+                    func.upper(
+                        VehicleType.name
+                    )
+                    == matching_vehicle_type.upper()
+                )
+            )
+
+        if matching_weight is not None:
+
+            conditions.append(
+                Vehicle.payload_lbs
+                >= matching_weight
+            )
+
+        return and_(*conditions)
+
+    # ========================================================
+    # TEAM
+    # ========================================================
+
+    def _team_filter(
+        self,
+        *,
+        is_bid: bool,
+        vehicle_id: int | None,
+    ):
+
+        if not self.team_ids:
+            return None
+
+        condition = or_(
+            Vehicle.team_id.in_(
+                self.team_ids
+            ),
+            Vehicle.team_id.is_(None),
+        )
+
+        if is_bid and vehicle_id:
+
+            condition = or_(
+                condition,
+                Vehicle.id == vehicle_id,
+            )
+
+        return condition
+
+    # ========================================================
+    # PLAIN
+    # ========================================================
 
     async def _plain_list(
         self,
         filters: VehicleFilter,
         params: VehicleListParams,
-        matching_vehicle_type: str | None = None,
-        matching_weight: int | None = None,
-    ) -> tuple[int, list[VehicleSchema]]:
-        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
-        base = and_(
-            Vehicle.status == 1,
-            Vehicle.registration_status == 4,
-            Vehicle.is_deleted.is_(False),
+        matching_vehicle_type: str | None,
+        matching_weight: int | None,
+    ):
+
+        base = self._base_filter(
+            params,
+            matching_vehicle_type,
+            matching_weight,
         )
-        if params.vehicle_ids and show_only_selected:
-            base = and_(base, Vehicle.id.in_(params.vehicle_ids))
-        if matching_vehicle_type:
-            base = and_(
-                base,
-                Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
-            )
-        if matching_weight is not None:
-            base = and_(
-                base,
-                Vehicle.payload_lbs >= matching_weight,
-            )
+
         combined = filters.combined()
-        where = and_(base, combined) if combined is not None else base
+
+        where = (
+            and_(base, combined)
+            if combined is not None
+            else base
+        )
 
         count = await self.session.scalar(
-            select(func.count()).select_from(Vehicle).where(where)
-        )
-        order = []
-        if params.vehicle_ids and not show_only_selected:
-            order.append(
-                case((Vehicle.id.in_(params.vehicle_ids), 0), else_=1).asc()
+            select(
+                func.count(Vehicle.id)
             )
-        order.append(Vehicle.id.desc())
+            .select_from(Vehicle)
+            .where(where)
+        )
+
+        show_only_selected = (
+            params.show_only_selected
+            and bool(params.vehicle_ids)
+        )
+
+        order_by = []
+
+        if (
+            params.vehicle_ids
+            and not show_only_selected
+        ):
+
+            selected = case(
+                (
+                    Vehicle.id.in_(
+                        params.vehicle_ids
+                    ),
+                    0,
+                ),
+                else_=1,
+            )
+
+            order_by.append(
+                selected.asc()
+            )
+
+        order_by.append(
+            Vehicle.id.desc()
+        )
+
         stmt = (
             select(Vehicle)
             .where(where)
-            .order_by(*order)
-            .offset((params.page - 1) * params.page_size)
+            .order_by(*order_by)
+            .offset(
+                (params.page - 1)
+                * params.page_size
+            )
             .limit(params.page_size)
-            .options(selectinload(Vehicle.equipment))
+            .options(
+                selectinload(
+                    Vehicle.equipment
+                )
+            )
         )
-        vehicles = (await self.session.scalars(stmt)).unique().all()
-        results = [VehicleSchema.from_vehicle(v) for v in vehicles]
-        return int(count or 0), results
+
+        vehicles = (
+            await self.session.scalars(
+                stmt
+            )
+        ).unique().all()
+
+        return (
+            int(count or 0),
+            [
+                VehicleSchema.from_vehicle(
+                    vehicle
+                )
+                for vehicle in vehicles
+            ],
+        )
+
+    # ========================================================
+    # DISTANCE
+    # ========================================================
 
     async def _distance_list(
         self,
+        *,
         lat: float,
         lon: float,
-        radius: float | None,
+        radius: float,
         vehicle_id: int | None,
-        driver_bid_vehicle_ids: list[int],
         is_bid: bool,
         load_id: int | None,
         params: VehicleListParams,
-        matching_vehicle_type: str | None = None,
-        matching_weight: int | None = None,
-    ) -> tuple[int, list[VehicleSchema]]:
-        effective_radius = 300 if radius == -1 else radius
-        load_clause = [DriverBid.load_id == load_id] if load_id else []
-        dbp = (
-            select(DriverBid.driver_price)
-            .where(DriverBid.vehicle_id == Vehicle.id, DriverBid.is_deleted.is_(False), *load_clause)
+        matching_vehicle_type: str | None,
+        matching_weight: int | None,
+    ):
+
+        base = self._base_filter(
+            params,
+            matching_vehicle_type,
+            matching_weight,
+        )
+
+        team = self._team_filter(
+            is_bid=is_bid,
+            vehicle_id=vehicle_id,
+        )
+
+        # ----------------------------------------------------
+        # Driver bid EXISTS
+        #
+        # Instead of:
+        #
+        #   vehicle_id IN ([...thousands...])
+        #
+        # ----------------------------------------------------
+
+        if load_id:
+
+            is_driver_bid_vehicle = exists(
+                select(1)
+                .select_from(DriverBid)
+                .where(
+                    DriverBid.load_id == load_id,
+                    DriverBid.vehicle_id
+                    == Vehicle.id,
+                    DriverBid.is_deleted.is_(False),
+                )
+            )
+
+        else:
+
+            is_driver_bid_vehicle = literal(
+                False
+            )
+
+        # ----------------------------------------------------
+        # Driver bid price
+        # ----------------------------------------------------
+
+        driver_bid_conditions = [
+            DriverBid.vehicle_id
+            == Vehicle.id,
+            DriverBid.is_deleted.is_(False),
+        ]
+
+        if load_id:
+            driver_bid_conditions.append(
+                DriverBid.load_id == load_id
+            )
+
+        driver_bid_price = (
+            select(
+                DriverBid.driver_price
+            )
+            .where(
+                *driver_bid_conditions
+            )
+            .order_by(
+                DriverBid.id.desc()
+            )
             .limit(1)
             .scalar_subquery()
         )
-        owner_bid_col = exists(
-            select(DriverBid.id).where(
-                DriverBid.vehicle_id == Vehicle.id,
-                DriverBid.owner_bid.is_(True),
-                DriverBid.is_deleted.is_(False),
-                *load_clause,
+
+        # ----------------------------------------------------
+        # Owner bid
+        # ----------------------------------------------------
+
+        owner_conditions = [
+            DriverBid.vehicle_id
+            == Vehicle.id,
+            DriverBid.owner_bid.is_(True),
+            DriverBid.is_deleted.is_(False),
+        ]
+
+        if load_id:
+            owner_conditions.append(
+                DriverBid.load_id == load_id
+            )
+
+        owner_bid = exists(
+            select(1)
+            .select_from(DriverBid)
+            .where(
+                *owner_conditions
             )
         )
-        is_on_load_col = exists(
-            select(ConfirmedLoad.id).where(
-                ConfirmedLoad.vehicle_id == Vehicle.id,
-                ConfirmedLoad.status.in_([1, 2, 3, 4]),
+
+        # ----------------------------------------------------
+        # Is on load
+        # ----------------------------------------------------
+
+        is_on_load = exists(
+            select(1)
+            .select_from(ConfirmedLoad)
+            .where(
+                ConfirmedLoad.vehicle_id
+                == Vehicle.id,
+                ConfirmedLoad.status.in_(
+                    (1, 2, 3, 4)
+                ),
                 ConfirmedLoad.is_deleted.is_(False),
             )
         )
-        is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
-        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
 
-        def base_filter():
-            cond = and_(
-                Vehicle.status == 1,
-                Vehicle.registration_status == 4,
-                Vehicle.is_deleted.is_(False),
-            )
-            if params.vehicle_ids and show_only_selected:
-                if driver_bid_vehicle_ids:
-                    cond = and_(
-                        cond,
-                        or_(
-                            Vehicle.id.in_(params.vehicle_ids),
-                            Vehicle.id.in_(driver_bid_vehicle_ids),
-                        ),
-                    )
-                else:
-                    cond = and_(cond, Vehicle.id.in_(params.vehicle_ids))
-            if vehicle_id:
-                cond = or_(cond, Vehicle.id == vehicle_id)
-            if matching_vehicle_type:
-                cond = and_(
-                    cond,
-                    Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
-                )
-            if matching_weight is not None:
-                cond = and_(
-                    cond,
-                    Vehicle.payload_lbs >= matching_weight,
-                )
-            return cond
-
-        def team_filter():
-            if not self.team_ids:
-                return None
-            cond = or_(Vehicle.team_id.in_(self.team_ids), Vehicle.team_id.is_(None))
-            if is_bid and vehicle_id:
-                cond = or_(cond, Vehicle.id == vehicle_id)
-            return cond
-
-        common_cols = [
-            is_dbv.label("is_driver_bid_vehicle"),
-            dbp.label("driver_bid_price"),
-            owner_bid_col.label("owner_bid"),
-            is_on_load_col.label("is_on_load"),
-        ]
-        if params.vehicle_ids and not show_only_selected:
-            common_cols.append(
-                Vehicle.id.in_(params.vehicle_ids).label("is_selected_vehicle")
-            )
+        # ----------------------------------------------------
+        # BID
+        # ----------------------------------------------------
 
         if is_bid:
-            sky = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
-            is_requested = (Vehicle.id == vehicle_id) if vehicle_id is not None else literal(False)
-            sel = select(
-                Vehicle.id.label("vid"),
-                sky.label("sky_distance"),
-                literal("current").label("location_type"),
-                is_requested.label("is_requested_vehicle"),
-                *common_cols,
-            ).where(base_filter())
-            tf = team_filter()
-            if tf is not None:
-                sel = sel.where(tf)
-            if effective_radius is not None:
-                sky_filter = sky <= effective_radius
-                bbox = _bounding_box(
-                    Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius
-                )
-                if bbox is not None:
-                    sky_filter = and_(bbox, sky_filter)
-                sel = sel.where(
-                    or_(
-                        is_requested,
-                        is_dbv,
-                        sky_filter,
-                    )
-                )
-            bid_order = []
-            if params.vehicle_ids and not show_only_selected:
-                bid_order.append(literal_column_desc("is_selected_vehicle"))
-            bid_order.extend(
-                [
-                    literal_column_desc("is_requested_vehicle"),
-                    literal_column_desc("is_driver_bid_vehicle"),
-                    literal_column_asc("sky_distance"),
-                ]
+
+            return await self._bid_distance(
+                lat=lat,
+                lon=lon,
+                radius=radius,
+                base=base,
+                team=team,
+                vehicle_id=vehicle_id,
+                is_driver_bid_vehicle=(
+                    is_driver_bid_vehicle
+                ),
+                driver_bid_price=(
+                    driver_bid_price
+                ),
+                owner_bid=owner_bid,
+                is_on_load=is_on_load,
+                params=params,
             )
-            ordered = sel.order_by(*bid_order)
-            return await self._materialise(ordered, params)
 
-        sky_cur = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
-        sky_pln = _haversine(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon)
+        # ----------------------------------------------------
+        # NORMAL
+        # ----------------------------------------------------
 
-        def radius_filter(sky_expr, lat_col, lon_col):
-            if effective_radius is None:
-                return None
-            condition = sky_expr <= effective_radius
-            bbox = _bounding_box(lat_col, lon_col, lat, lon, effective_radius)
-            if bbox is not None:
-                condition = and_(bbox, condition)
-            return or_(is_dbv, condition)
-
-        radius_filter_cur = radius_filter(sky_cur, Vehicle.latitude, Vehicle.longitude)
-        radius_filter_pln = radius_filter(
-            sky_pln, Vehicle.planned_latitude, Vehicle.planned_longitude
+        return await self._normal_distance(
+            lat=lat,
+            lon=lon,
+            radius=radius,
+            base=base,
+            team=team,
+            is_driver_bid_vehicle=(
+                is_driver_bid_vehicle
+            ),
+            driver_bid_price=driver_bid_price,
+            owner_bid=owner_bid,
+            is_on_load=is_on_load,
+            params=params,
         )
 
-        cur = select(
-            Vehicle.id.label("vid"),
-            sky_cur.label("sky_distance"),
-            literal("current").label("location_type"),
-            literal(None).label("is_requested_vehicle"),
-            *common_cols,
-        ).where(base_filter())
+    # ========================================================
+    # BID DISTANCE
+    # ========================================================
 
-        pln = select(
+    async def _bid_distance(
+        self,
+        *,
+        lat: float,
+        lon: float,
+        radius: float,
+        base,
+        team,
+        vehicle_id: int | None,
+        is_driver_bid_vehicle,
+        driver_bid_price,
+        owner_bid,
+        is_on_load,
+        params: VehicleListParams,
+    ):
+
+        distance = _haversine(
+            Vehicle.latitude,
+            Vehicle.longitude,
+            lat,
+            lon,
+        )
+
+        requested = (
+            Vehicle.id == vehicle_id
+            if vehicle_id is not None
+            else literal(False)
+        )
+
+        selected = (
+            Vehicle.id.in_(
+                params.vehicle_ids
+            )
+            if params.vehicle_ids
+            else literal(False)
+        )
+
+        # ----------------------------------------------------
+        # BBOX FIRST
+        # ----------------------------------------------------
+
+        bbox = _bbox(
+            Vehicle.latitude,
+            Vehicle.longitude,
+            lat,
+            lon,
+            radius,
+        )
+
+        where = and_(
+            base,
+            Vehicle.latitude.is_not(None),
+            Vehicle.longitude.is_not(None),
+            or_(
+                requested,
+                is_driver_bid_vehicle,
+                and_(
+                    bbox,
+                    distance <= radius,
+                ),
+            ),
+        )
+
+        if team is not None:
+            where = and_(
+                where,
+                team,
+            )
+
+        stmt = select(
             Vehicle.id.label("vid"),
-            sky_pln.label("sky_distance"),
-            literal("planned").label("location_type"),
-            literal(None).label("is_requested_vehicle"),
-            *common_cols,
-        ).where(
-            base_filter(),
+            distance.label("sky_distance"),
+            literal("current").label(
+                "location_type"
+            ),
+            requested.label(
+                "is_requested_vehicle"
+            ),
+            is_driver_bid_vehicle.label(
+                "is_driver_bid_vehicle"
+            ),
+            driver_bid_price.label(
+                "driver_bid_price"
+            ),
+            owner_bid.label(
+                "owner_bid"
+            ),
+            is_on_load.label(
+                "is_on_load"
+            ),
+            selected.label(
+                "is_selected_vehicle"
+            ),
+        ).where(where)
+
+        order = []
+
+        if params.vehicle_ids:
+
+            order.append(
+                selected.desc()
+            )
+
+        order.extend(
+            [
+                requested.desc(),
+                is_driver_bid_vehicle.desc(),
+                distance.asc(),
+                Vehicle.id.asc(),
+            ]
+        )
+
+        stmt = stmt.order_by(*order)
+
+        return await self._paginate_distance(
+            stmt,
+            params,
+        )
+
+    # ========================================================
+    # NORMAL DISTANCE
+    # ========================================================
+
+    async def _normal_distance(
+        self,
+        *,
+        lat: float,
+        lon: float,
+        radius: float,
+        base,
+        team,
+        is_driver_bid_vehicle,
+        driver_bid_price,
+        owner_bid,
+        is_on_load,
+        params: VehicleListParams,
+    ):
+
+        selected = (
+            Vehicle.id.in_(
+                params.vehicle_ids
+            )
+            if params.vehicle_ids
+            else literal(False)
+        )
+
+        # ====================================================
+        # CURRENT
+        # ====================================================
+
+        current_distance = _haversine(
+            Vehicle.latitude,
+            Vehicle.longitude,
+            lat,
+            lon,
+        )
+
+        current_bbox = _bbox(
+            Vehicle.latitude,
+            Vehicle.longitude,
+            lat,
+            lon,
+            radius,
+        )
+
+        current_where = and_(
+            base,
+            Vehicle.latitude.is_not(None),
+            Vehicle.longitude.is_not(None),
+            or_(
+                is_driver_bid_vehicle,
+                and_(
+                    current_bbox,
+                    current_distance <= radius,
+                ),
+            ),
+        )
+
+        if team is not None:
+            current_where = and_(
+                current_where,
+                team,
+            )
+
+        current = select(
+            Vehicle.id.label("vid"),
+            current_distance.label(
+                "sky_distance"
+            ),
+            literal("current").label(
+                "location_type"
+            ),
+            literal(None).label(
+                "is_requested_vehicle"
+            ),
+            is_driver_bid_vehicle.label(
+                "is_driver_bid_vehicle"
+            ),
+            driver_bid_price.label(
+                "driver_bid_price"
+            ),
+            owner_bid.label(
+                "owner_bid"
+            ),
+            is_on_load.label(
+                "is_on_load"
+            ),
+            selected.label(
+                "is_selected_vehicle"
+            ),
+        ).where(current_where)
+
+        # ====================================================
+        # PLANNED
+        # ====================================================
+
+        planned_distance = _haversine(
+            Vehicle.planned_latitude,
+            Vehicle.planned_longitude,
+            lat,
+            lon,
+        )
+
+        planned_bbox = _bbox(
+            Vehicle.planned_latitude,
+            Vehicle.planned_longitude,
+            lat,
+            lon,
+            radius,
+        )
+
+        planned_where = and_(
+            base,
             Vehicle.planned_latitude.is_not(None),
             Vehicle.planned_longitude.is_not(None),
             Vehicle.planned_address.is_not(None),
             Vehicle.planned_address != "",
+            or_(
+                is_driver_bid_vehicle,
+                and_(
+                    planned_bbox,
+                    planned_distance <= radius,
+                ),
+            ),
         )
 
-        tf = team_filter()
-        if tf is not None:
-            cur = cur.where(tf)
-            pln = pln.where(tf)
-        if radius_filter_cur is not None:
-            cur = cur.where(radius_filter_cur)
-            pln = pln.where(radius_filter_pln)
+        if team is not None:
+            planned_where = and_(
+                planned_where,
+                team,
+            )
 
-        unioned = union_all(cur, pln).subquery("veh")
+        planned = select(
+            Vehicle.id.label("vid"),
+            planned_distance.label(
+                "sky_distance"
+            ),
+            literal("planned").label(
+                "location_type"
+            ),
+            literal(None).label(
+                "is_requested_vehicle"
+            ),
+            is_driver_bid_vehicle.label(
+                "is_driver_bid_vehicle"
+            ),
+            driver_bid_price.label(
+                "driver_bid_price"
+            ),
+            owner_bid.label(
+                "owner_bid"
+            ),
+            is_on_load.label(
+                "is_on_load"
+            ),
+            selected.label(
+                "is_selected_vehicle"
+            ),
+        ).where(planned_where)
 
-        dist_order = []
-        if params.vehicle_ids and not show_only_selected:
-            dist_order.append(unioned.c.is_selected_vehicle.desc())
-        dist_order.extend(
-            [
+        # ====================================================
+        # UNION
+        # ====================================================
+
+        unioned = union_all(
+            current,
+            planned,
+        ).subquery("vehicle_distance")
+
+        stmt = (
+            select(unioned)
+            .order_by(
+                unioned.c.is_selected_vehicle.desc(),
                 unioned.c.is_driver_bid_vehicle.desc(),
                 unioned.c.sky_distance.asc(),
-            ]
+                unioned.c.vid.asc(),
+            )
         )
-        ordered = select(unioned).order_by(*dist_order)
-        return await self._materialise(ordered, params)
 
-    async def _materialise(self, ordered_stmt, params):
-        # Count via a window function over the SAME union, so Postgres computes
-        # the expensive Haversine union ONCE instead of re-running it for
-        # COUNT(*). This is the dominant cost of the proximity listing.
+        return await self._paginate_distance(
+            stmt,
+            params,
+        )
+
+    # ========================================================
+    # PAGINATION
+    # ========================================================
+
+    async def _paginate_distance(
+        self,
+        stmt,
+        params: VehicleListParams,
+    ):
+
+        offset = (
+            (params.page - 1)
+            * params.page_size
+        )
+
+        # ----------------------------------------------------
+        # First get page IDs.
+        # +1 lets us know if next page exists.
+        # ----------------------------------------------------
+
         page_stmt = (
-            ordered_stmt
-            .add_columns(func.count().over().label("_total_count"))
-            .offset((params.page - 1) * params.page_size)
-            .limit(params.page_size)
+            stmt
+            .offset(offset)
+            .limit(params.page_size + 1)
         )
 
-        rows = (await self.session.execute(page_stmt)).mappings().all()
+        rows = (
+            await self.session.execute(
+                page_stmt
+            )
+        ).mappings().all()
+
         if not rows:
             return 0, []
 
-        count = int(rows[0]["_total_count"] or 0)
+        has_more = (
+            len(rows)
+            > params.page_size
+        )
 
-        id_key = "vid" if "vid" in rows[0] else "id"
-        vids = [row[id_key] for row in rows]
+        rows = rows[
+            :params.page_size
+        ]
+
+        vehicle_ids = list(
+            dict.fromkeys(
+                row["vid"]
+                for row in rows
+            )
+        )
+
+        if not vehicle_ids:
+            return 0, []
+
+        # ----------------------------------------------------
+        # Fetch actual vehicles only once.
+        # ----------------------------------------------------
 
         vehicles = (
             await self.session.scalars(
                 select(Vehicle)
-                .where(Vehicle.id.in_(vids))
-                .options(selectinload(Vehicle.equipment))
+                .where(
+                    Vehicle.id.in_(
+                        vehicle_ids
+                    )
+                )
+                .options(
+                    selectinload(
+                        Vehicle.equipment
+                    )
+                )
             )
         ).unique().all()
-        by_id = {v.id: v for v in vehicles}
 
-        results: list[VehicleSchema] = []
+        by_id = {
+            vehicle.id: vehicle
+            for vehicle in vehicles
+        }
+
+        results = []
+
         for row in rows:
-            vehicle = by_id.get(row[id_key])
+
+            vehicle = by_id.get(
+                row["vid"]
+            )
+
             if vehicle is None:
                 continue
+
             results.append(
                 VehicleSchema.from_vehicle(
                     vehicle,
-                    sky_distance=row.get("sky_distance"),
-                    location_type=row.get("location_type"),
-                    driver_bid_price=row.get("driver_bid_price"),
-                    owner_bid=row.get("owner_bid"),
-                    is_on_load=row.get("is_on_load"),
-                    is_requested_vehicle=row.get("is_requested_vehicle"),
+                    sky_distance=row.get(
+                        "sky_distance"
+                    ),
+                    location_type=row.get(
+                        "location_type"
+                    ),
+                    driver_bid_price=row.get(
+                        "driver_bid_price"
+                    ),
+                    owner_bid=row.get(
+                        "owner_bid"
+                    ),
+                    is_on_load=row.get(
+                        "is_on_load"
+                    ),
+                    is_requested_vehicle=row.get(
+                        "is_requested_vehicle"
+                    ),
                 )
             )
-        return count, results
 
-    async def _driver_bid_vehicle_ids(self, load_id: int) -> list[int]:
-        stmt = select(DriverBid.vehicle_id).where(
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # If your API really needs total count, calculate it
+        # separately.
+        #
+        # This query does NOT calculate Haversine twice for
+        # every result row through COUNT() OVER().
+        # ----------------------------------------------------
+
+        total = await self._count_rows(
+            stmt
+        )
+
+        return total, results
+
+    # ========================================================
+    # COUNT
+    # ========================================================
+
+    async def _count_rows(
+        self,
+        stmt,
+    ) -> int:
+
+        subquery = (
+            stmt
+            .order_by(None)
+            .subquery()
+        )
+
+        count_stmt = select(
+            func.count()
+        ).select_from(
+            subquery
+        )
+
+        result = await self.session.scalar(
+            count_stmt
+        )
+
+        return int(result or 0)
+
+    # ========================================================
+    # DRIVER BID IDS
+    #
+    # Kept only if another part of your application needs it.
+    # Proximity query itself no longer uses Python IN(list).
+    # ========================================================
+
+    async def _driver_bid_vehicle_ids(
+        self,
+        load_id: int,
+    ) -> list[int]:
+
+        stmt = select(
+            DriverBid.vehicle_id
+        ).where(
             DriverBid.load_id == load_id,
             DriverBid.vehicle_id.is_not(None),
-            DriverBid.is_deleted.is_(False)
+            DriverBid.is_deleted.is_(False),
         )
+
         if self.team_ids:
-            stmt = stmt.join(Vehicle, Vehicle.id == DriverBid.vehicle_id).where(
-                or_(Vehicle.team_id.in_(self.team_ids), Vehicle.team_id.is_(None))
+
+            stmt = (
+                stmt
+                .join(
+                    Vehicle,
+                    Vehicle.id
+                    == DriverBid.vehicle_id,
+                )
+                .where(
+                    or_(
+                        Vehicle.team_id.in_(
+                            self.team_ids
+                        ),
+                        Vehicle.team_id.is_(None),
+                    )
+                )
             )
-        return [vid for vid in (await self.session.scalars(stmt)).all() if vid is not None]
 
+        result = await self.session.scalars(
+            stmt
+        )
 
-def literal_column_desc(name: str):
-    from sqlalchemy import literal_column
-
-    return literal_column(name).desc()
-
-
-def literal_column_asc(name: str):
-    from sqlalchemy import literal_column
-
-    return literal_column(name).asc()
+        return [
+            vehicle_id
+            for vehicle_id in result.all()
+            if vehicle_id is not None
+        ]
