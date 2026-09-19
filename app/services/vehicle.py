@@ -393,37 +393,31 @@ class VehicleListService:
             cur = cur.where(radius_filter_cur)
             pln = pln.where(radius_filter_pln)
 
-        # TEMP diagnostic: no UNION — only current-location vehicles, to check
-        # whether union_all is the lag source. Revert to `union_all(cur, pln)`
-        # after the test.
+        unioned = union_all(cur, pln).subquery("veh")
+
         dist_order = []
         if params.vehicle_ids and not show_only_selected:
-            dist_order.append(literal_column_desc("is_selected_vehicle"))
+            dist_order.append(unioned.c.is_selected_vehicle.desc())
         dist_order.extend(
             [
-                literal_column_desc("is_driver_bid_vehicle"),
-                literal_column_asc("sky_distance"),
+                unioned.c.is_driver_bid_vehicle.desc(),
+                unioned.c.sky_distance.asc(),
             ]
         )
-        ordered = cur.order_by(*dist_order)
+        ordered = select(unioned).order_by(*dist_order)
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
-        # Count via a window function over the SAME union, so Postgres computes
-        # the expensive Haversine union ONCE instead of re-running it for
-        # COUNT(*). This is the dominant cost of the proximity listing.
-        page_stmt = (
-            ordered_stmt
-            .add_columns(func.count().over().label("_total_count"))
-            .offset((params.page - 1) * params.page_size)
-            .limit(params.page_size)
+        count = await self.session.scalar(
+            select(func.count()).select_from(ordered_stmt.subquery())
         )
+        page_stmt = ordered_stmt.offset(
+            (params.page - 1) * params.page_size
+        ).limit(params.page_size)
 
         rows = (await self.session.execute(page_stmt)).mappings().all()
         if not rows:
-            return 0, []
-
-        count = int(rows[0]["_total_count"] or 0)
+            return int(count or 0), []
 
         id_key = "vid" if "vid" in rows[0] else "id"
         vids = [row[id_key] for row in rows]
@@ -453,7 +447,7 @@ class VehicleListService:
                     is_requested_vehicle=row.get("is_requested_vehicle"),
                 )
             )
-        return count, results
+        return int(count or 0), results
 
     async def _driver_bid_vehicle_ids(self, load_id: int) -> list[int]:
         stmt = select(DriverBid.vehicle_id).where(
