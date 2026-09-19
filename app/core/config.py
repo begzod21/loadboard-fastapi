@@ -56,12 +56,16 @@ class Settings(BaseSettings):
     # again once idle. Set it to 0 for a hard cap; use pgBouncer if you need
     # burst headroom without opening real connections to Postgres.
     DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 0
+    DB_MAX_OVERFLOW: int = 5
     DB_POOL_RECYCLE: int = 1800
     DB_POOL_TIMEOUT: int = 30
 
     REDIS_MAX_CONNECTIONS: int = 20
     TENANT_CACHE_TTL: int = 300  # seconds; 0 disables tenant caching
+    USER_CACHE_TTL: int = 60  # seconds; 0 disables per-user permission/team cache
+
+    # Log request timing only when total_ms >= this threshold (0 = log all).
+    REQUEST_LOG_MIN_MS: int = 0
 
     CORS_ORIGINS: str = "*"  # comma-separated list, or "*"
 
