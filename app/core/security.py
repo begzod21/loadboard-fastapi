@@ -57,6 +57,7 @@ async def get_current_user(
         raise _credentials_exception("Invalid or expired token") from exc
     if user_id is None:
         raise _credentials_exception("Invalid or expired token")
+
     result = await session.execute(
         text("""
             SELECT
@@ -86,10 +87,11 @@ async def get_current_user(
 
     user_uuid = row.user_uuid
 
-    return CurrentUser(
+    user = CurrentUser(
         user_id=user_id,
         user_uuid=str(user_uuid) if user_uuid is not None else None,
         is_superuser=row.is_superuser,
         team_ids=row.team_ids or [],
         permissions=set(row.permissions or []),
     )
+    return user

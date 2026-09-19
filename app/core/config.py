@@ -49,13 +49,20 @@ class Settings(BaseSettings):
     WEBSOCKET_UNIX_SOCKET: str = "/run/tms-websocket.sock"
 
     # --- Production tuning (all overridable via .env) ---
-    DB_POOL_SIZE: int = 5
+    # NOTE: uvicorn runs with `--workers N`, and every worker owns its own
+    # asyncpg pool. Total connections = workers * (DB_POOL_SIZE + DB_MAX_OVERFLOW).
+    # DB_MAX_OVERFLOW is what makes the connection count spike during bursts
+    # (130 -> 200 -> 140): overflow connections are opened on demand and closed
+    # again once idle. Set it to 0 for a hard cap; use pgBouncer if you need
+    # burst headroom without opening real connections to Postgres.
+    DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 5
     DB_POOL_RECYCLE: int = 1800
     DB_POOL_TIMEOUT: int = 30
 
     REDIS_MAX_CONNECTIONS: int = 20
     TENANT_CACHE_TTL: int = 300  # seconds; 0 disables tenant caching
+
 
     CORS_ORIGINS: str = "*"  # comma-separated list, or "*"
 
