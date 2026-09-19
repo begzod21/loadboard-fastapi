@@ -3,7 +3,7 @@ from fastapi.responses import ORJSONResponse
 from contextlib import asynccontextmanager
 
 from app.core.database import close_db, warmup
-from app.middleware import CORSMiddleware, GZipMiddleware, RequestTimingMiddleware
+from app.middleware import CORSMiddleware, GZipMiddleware
 
 
 from app.api import load_router, vehicle_router
@@ -30,7 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Outermost: wraps gzip/cors so total_ms includes compression & serialisation.
-app.add_middleware(RequestTimingMiddleware)
+
 app.include_router(vehicle_router)
 app.include_router(load_router)

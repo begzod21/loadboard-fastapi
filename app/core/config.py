@@ -62,10 +62,7 @@ class Settings(BaseSettings):
 
     REDIS_MAX_CONNECTIONS: int = 20
     TENANT_CACHE_TTL: int = 300  # seconds; 0 disables tenant caching
-    USER_CACHE_TTL: int = 60  # seconds; 0 disables per-user permission/team cache
 
-    # Log request timing only when total_ms >= this threshold (0 = log all).
-    REQUEST_LOG_MIN_MS: int = 0
 
     CORS_ORIGINS: str = "*"  # comma-separated list, or "*"
 

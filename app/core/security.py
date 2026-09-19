@@ -1,5 +1,3 @@
-import json
-import logging
 from dataclasses import dataclass, field
 
 import jwt
@@ -9,11 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_tenant_db
-from app.core.redis import redis_client
-
-logger = logging.getLogger(__name__)
-
-_USER_CACHE_PREFIX = "user:v1:"
 
 
 @dataclass
@@ -53,49 +46,6 @@ def _decode_token(authorization: str | None) -> dict:
     return payload
 
 
-async def _cached_user(user_id: int) -> CurrentUser | None:
-    if settings.USER_CACHE_TTL <= 0:
-        return None
-    try:
-        raw = await redis_client.get(f"{_USER_CACHE_PREFIX}{user_id}")
-    except Exception as exc:  # Redis down -> transparent DB fallback
-        logger.warning("user cache read failed: %s", exc)
-        return None
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-        return CurrentUser(
-            user_id=int(data["user_id"]),
-            user_uuid=data.get("user_uuid"),
-            is_superuser=bool(data.get("is_superuser")),
-            team_ids=list(data.get("team_ids") or []),
-            permissions=set(data.get("permissions") or []),
-        )
-    except (TypeError, ValueError, KeyError):
-        return None
-
-
-async def _store_user(user: CurrentUser) -> None:
-    if settings.USER_CACHE_TTL <= 0 or user.user_id is None:
-        return
-    payload = {
-        "user_id": user.user_id,
-        "user_uuid": user.user_uuid,
-        "is_superuser": user.is_superuser,
-        "team_ids": user.team_ids,
-        "permissions": sorted(user.permissions),
-    }
-    try:
-        await redis_client.set(
-            f"{_USER_CACHE_PREFIX}{user.user_id}",
-            json.dumps(payload),
-            ex=settings.USER_CACHE_TTL,
-        )
-    except Exception as exc:
-        logger.warning("user cache write failed: %s", exc)
-
-
 async def get_current_user(
     session: AsyncSession = Depends(get_tenant_db),
     authorization: str | None = Header(default=None),
@@ -107,10 +57,6 @@ async def get_current_user(
         raise _credentials_exception("Invalid or expired token") from exc
     if user_id is None:
         raise _credentials_exception("Invalid or expired token")
-
-    cached = await _cached_user(user_id)
-    if cached is not None:
-        return cached
 
     result = await session.execute(
         text("""
