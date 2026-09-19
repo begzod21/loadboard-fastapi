@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -74,6 +75,17 @@ class Driver(Base):
 
 class Vehicle(Base):
     __tablename__ = "owner_vehicle"
+
+    __table_args__ = (
+        Index(
+            "ix_owner_vehicle_status_reg_deleted",
+            "status",
+            "registration_status",
+            "is_deleted",
+        ),
+        Index("ix_owner_vehicle_current_loc", "latitude", "longitude"),
+        Index("ix_owner_vehicle_planned_loc", "planned_latitude", "planned_longitude"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     object_id: Mapped[str | None] = mapped_column(String(255))

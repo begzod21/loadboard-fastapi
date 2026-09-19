@@ -12,6 +12,7 @@ Reproduces the Django behaviour:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import cos, radians
 
 from sqlalchemy import (
     Float,
@@ -36,6 +37,30 @@ from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
 EARTH_RADIUS_MILES = 3958.756
+MILES_PER_DEGREE_LATITUDE = 69.0
+
+
+def _bounding_box(lat_col, lon_col, lat: float, lon: float, radius_miles: float | None):
+    """Square bounding box that contains the radius circle around (lat, lon).
+
+    Used only as a cheap pre-filter so the database can use a btree index on
+    latitude/longitude before the exact Haversine check. The box is always a
+    superset of the circle, so it never changes the result set.
+    """
+    if radius_miles is None or radius_miles < 0:
+        return None
+    lat_delta = radius_miles / MILES_PER_DEGREE_LATITUDE
+    # Longitude degrees shrink as latitude moves away from the equator.
+    lon_delta = radius_miles / (
+        MILES_PER_DEGREE_LATITUDE * max(cos(radians(lat)), 0.001)
+    )
+    # Small safety margin so floating point never clips the circle.
+    lat_delta += 0.25
+    lon_delta += 0.25
+    return and_(
+        lat_col.between(lat - lat_delta, lat + lat_delta),
+        lon_col.between(lon - lon_delta, lon + lon_delta),
+    )
 
 
 def _haversine(lat_col, lon_col, lat: float, lon: float):
@@ -295,11 +320,17 @@ class VehicleListService:
             if tf is not None:
                 sel = sel.where(tf)
             if effective_radius is not None:
+                sky_filter = sky <= effective_radius
+                bbox = _bounding_box(
+                    Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius
+                )
+                if bbox is not None:
+                    sky_filter = and_(bbox, sky_filter)
                 sel = sel.where(
                     or_(
                         is_requested,
                         is_dbv,
-                        sky <= effective_radius,
+                        sky_filter,
                     )
                 )
             bid_order = []
@@ -317,11 +348,19 @@ class VehicleListService:
 
         sky_cur = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
         sky_pln = _haversine(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon)
-        radius_filter_cur = (
-            or_(is_dbv, sky_cur <= effective_radius) if effective_radius is not None else None
-        )
-        radius_filter_pln = (
-            or_(is_dbv, sky_pln <= effective_radius) if effective_radius is not None else None
+
+        def radius_filter(sky_expr, lat_col, lon_col):
+            if effective_radius is None:
+                return None
+            condition = sky_expr <= effective_radius
+            bbox = _bounding_box(lat_col, lon_col, lat, lon, effective_radius)
+            if bbox is not None:
+                condition = and_(bbox, condition)
+            return or_(is_dbv, condition)
+
+        radius_filter_cur = radius_filter(sky_cur, Vehicle.latitude, Vehicle.longitude)
+        radius_filter_pln = radius_filter(
+            sky_pln, Vehicle.planned_latitude, Vehicle.planned_longitude
         )
 
         cur = select(
