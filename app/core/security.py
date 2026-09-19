@@ -94,5 +94,4 @@ async def get_current_user(
         team_ids=row.team_ids or [],
         permissions=set(row.permissions or []),
     )
-    await _store_user(user)
     return user
