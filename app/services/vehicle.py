@@ -12,10 +12,12 @@ Reproduces the Django behaviour:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import cos, radians
 
 from sqlalchemy import (
     Float,
     and_,
+    case,
     cast,
     exists,
     func,
@@ -35,6 +37,30 @@ from ..schemas.vehicle import VehicleSchema
 from .mapbox import MapService
 
 EARTH_RADIUS_MILES = 3958.756
+MILES_PER_DEGREE_LATITUDE = 69.0
+
+
+def _bounding_box(lat_col, lon_col, lat: float, lon: float, radius_miles: float | None):
+    """Square bounding box that contains the radius circle around (lat, lon).
+
+    Used only as a cheap pre-filter so the database can use a btree index on
+    latitude/longitude before the exact Haversine check. The box is always a
+    superset of the circle, so it never changes the result set.
+    """
+    if radius_miles is None or radius_miles < 0:
+        return None
+    lat_delta = radius_miles / MILES_PER_DEGREE_LATITUDE
+    # Longitude degrees shrink as latitude moves away from the equator.
+    lon_delta = radius_miles / (
+        MILES_PER_DEGREE_LATITUDE * max(cos(radians(lat)), 0.001)
+    )
+    # Small safety margin so floating point never clips the circle.
+    lat_delta += 0.25
+    lon_delta += 0.25
+    return and_(
+        lat_col.between(lat - lat_delta, lat + lat_delta),
+        lon_col.between(lon - lon_delta, lon + lon_delta),
+    )
 
 
 def _haversine(lat_col, lon_col, lat: float, lon: float):
@@ -59,6 +85,7 @@ class VehicleListParams:
     load_id: int | None = None
     bid_id: int | None = None
     vehicle_ids: list[int] = field(default_factory=list)
+    show_only_selected: bool = False
     has_matching_vehicles: bool = False
     page: int = 1
     page_size: int = 20
@@ -148,12 +175,13 @@ class VehicleListService:
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
+        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
         base = and_(
             Vehicle.status == 1,
             Vehicle.registration_status == 4,
             Vehicle.is_deleted.is_(False),
         )
-        if params.vehicle_ids:
+        if params.vehicle_ids and show_only_selected:
             base = and_(base, Vehicle.id.in_(params.vehicle_ids))
         if matching_vehicle_type:
             base = and_(
@@ -171,10 +199,16 @@ class VehicleListService:
         count = await self.session.scalar(
             select(func.count()).select_from(Vehicle).where(where)
         )
+        order = []
+        if params.vehicle_ids and not show_only_selected:
+            order.append(
+                case((Vehicle.id.in_(params.vehicle_ids), 0), else_=1).asc()
+            )
+        order.append(Vehicle.id.desc())
         stmt = (
             select(Vehicle)
             .where(where)
-            .order_by(Vehicle.id.desc())
+            .order_by(*order)
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
             .options(selectinload(Vehicle.equipment))
@@ -220,6 +254,7 @@ class VehicleListService:
             )
         )
         is_dbv = Vehicle.id.in_(driver_bid_vehicle_ids) if driver_bid_vehicle_ids else literal(False)
+        show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
 
         def base_filter():
             cond = and_(
@@ -227,8 +262,17 @@ class VehicleListService:
                 Vehicle.registration_status == 4,
                 Vehicle.is_deleted.is_(False),
             )
-            if params.vehicle_ids:
-                cond = and_(cond, Vehicle.id.in_(params.vehicle_ids))
+            if params.vehicle_ids and show_only_selected:
+                if driver_bid_vehicle_ids:
+                    cond = and_(
+                        cond,
+                        or_(
+                            Vehicle.id.in_(params.vehicle_ids),
+                            Vehicle.id.in_(driver_bid_vehicle_ids),
+                        ),
+                    )
+                else:
+                    cond = and_(cond, Vehicle.id.in_(params.vehicle_ids))
             if vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             if matching_vehicle_type:
@@ -257,6 +301,10 @@ class VehicleListService:
             owner_bid_col.label("owner_bid"),
             is_on_load_col.label("is_on_load"),
         ]
+        if params.vehicle_ids and not show_only_selected:
+            common_cols.append(
+                Vehicle.id.in_(params.vehicle_ids).label("is_selected_vehicle")
+            )
 
         if is_bid:
             sky = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
@@ -272,27 +320,47 @@ class VehicleListService:
             if tf is not None:
                 sel = sel.where(tf)
             if effective_radius is not None:
+                sky_filter = sky <= effective_radius
+                bbox = _bounding_box(
+                    Vehicle.latitude, Vehicle.longitude, lat, lon, effective_radius
+                )
+                if bbox is not None:
+                    sky_filter = and_(bbox, sky_filter)
                 sel = sel.where(
                     or_(
                         is_requested,
                         is_dbv,
-                        sky <= effective_radius,
+                        sky_filter,
                     )
                 )
-            ordered = sel.order_by(
-                literal_column_desc("is_requested_vehicle"),
-                literal_column_desc("is_driver_bid_vehicle"),
-                literal_column_asc("sky_distance"),
+            bid_order = []
+            if params.vehicle_ids and not show_only_selected:
+                bid_order.append(literal_column_desc("is_selected_vehicle"))
+            bid_order.extend(
+                [
+                    literal_column_desc("is_requested_vehicle"),
+                    literal_column_desc("is_driver_bid_vehicle"),
+                    literal_column_asc("sky_distance"),
+                ]
             )
+            ordered = sel.order_by(*bid_order)
             return await self._materialise(ordered, params)
 
         sky_cur = _haversine(Vehicle.latitude, Vehicle.longitude, lat, lon)
         sky_pln = _haversine(Vehicle.planned_latitude, Vehicle.planned_longitude, lat, lon)
-        radius_filter_cur = (
-            or_(is_dbv, sky_cur <= effective_radius) if effective_radius is not None else None
-        )
-        radius_filter_pln = (
-            or_(is_dbv, sky_pln <= effective_radius) if effective_radius is not None else None
+
+        def radius_filter(sky_expr, lat_col, lon_col):
+            if effective_radius is None:
+                return None
+            condition = sky_expr <= effective_radius
+            bbox = _bounding_box(lat_col, lon_col, lat, lon, effective_radius)
+            if bbox is not None:
+                condition = and_(bbox, condition)
+            return or_(is_dbv, condition)
+
+        radius_filter_cur = radius_filter(sky_cur, Vehicle.latitude, Vehicle.longitude)
+        radius_filter_pln = radius_filter(
+            sky_pln, Vehicle.planned_latitude, Vehicle.planned_longitude
         )
 
         cur = select(
@@ -325,28 +393,37 @@ class VehicleListService:
             cur = cur.where(radius_filter_cur)
             pln = pln.where(radius_filter_pln)
 
-        unioned = union_all(cur, pln).subquery("veh")
-
-        ordered = (
-            select(unioned)
-            .order_by(
-                unioned.c.is_driver_bid_vehicle.desc(),
-                unioned.c.sky_distance.asc(),
-            )
+        # TEMP diagnostic: no UNION — only current-location vehicles, to check
+        # whether union_all is the lag source. Revert to `union_all(cur, pln)`
+        # after the test.
+        dist_order = []
+        if params.vehicle_ids and not show_only_selected:
+            dist_order.append(literal_column_desc("is_selected_vehicle"))
+        dist_order.extend(
+            [
+                literal_column_desc("is_driver_bid_vehicle"),
+                literal_column_asc("sky_distance"),
+            ]
         )
+        ordered = cur.order_by(*dist_order)
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
-        count = await self.session.scalar(
-            select(func.count()).select_from(ordered_stmt.subquery())
+        # Count via a window function over the SAME union, so Postgres computes
+        # the expensive Haversine union ONCE instead of re-running it for
+        # COUNT(*). This is the dominant cost of the proximity listing.
+        page_stmt = (
+            ordered_stmt
+            .add_columns(func.count().over().label("_total_count"))
+            .offset((params.page - 1) * params.page_size)
+            .limit(params.page_size)
         )
-        page_stmt = ordered_stmt.offset(
-            (params.page - 1) * params.page_size
-        ).limit(params.page_size)
 
         rows = (await self.session.execute(page_stmt)).mappings().all()
         if not rows:
-            return int(count or 0), []
+            return 0, []
+
+        count = int(rows[0]["_total_count"] or 0)
 
         id_key = "vid" if "vid" in rows[0] else "id"
         vids = [row[id_key] for row in rows]
@@ -376,7 +453,7 @@ class VehicleListService:
                     is_requested_vehicle=row.get("is_requested_vehicle"),
                 )
             )
-        return int(count or 0), results
+        return count, results
 
     async def _driver_bid_vehicle_ids(self, load_id: int) -> list[int]:
         stmt = select(DriverBid.vehicle_id).where(
