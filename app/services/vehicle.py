@@ -651,22 +651,51 @@ class VehicleListService:
         ).where(planned_where)
 
         # ====================================================
-        # UNION + DEDUP
+        # UNION + DEDUP с двойным CTE
         # ====================================================
 
-        unioned = union_all(current, planned).subquery("vehicle_distance")
+        # Шаг 1: UNION current и planned
+        unioned = union_all(current, planned).cte("vehicle_distance")
 
-        # ROW_NUMBER для dedup по vid
-        row_num = func.row_number().over(
-            partition_by=unioned.c.vid,
-            order_by=unioned.c.sky_distance.asc(),
-        ).label("rn")
+        # Шаг 2: Добавляем row_number()
+        with_row_number = select(
+            unioned.c.vid,
+            unioned.c.sky_distance,
+            unioned.c.location_type,
+            unioned.c.is_requested_vehicle,
+            unioned.c.is_driver_bid_vehicle,
+            unioned.c.driver_bid_price,
+            unioned.c.owner_bid,
+            unioned.c.is_on_load,
+            unioned.c.is_selected_vehicle,
+            func.row_number()
+            .over(
+                partition_by=unioned.c.vid,
+                order_by=unioned.c.sky_distance.asc(),
+            )
+            .label("rn"),
+        ).cte("vehicle_with_rn")
 
-        stmt = select(unioned, row_num).where(row_num == 1).order_by(
-            unioned.c.is_selected_vehicle.desc(),
-            unioned.c.is_driver_bid_vehicle.desc(),
-            unioned.c.sky_distance.asc(),
-            unioned.c.vid.asc(),
+        # Шаг 3: Фильтруем rn = 1
+        stmt = (
+            select(
+                with_row_number.c.vid,
+                with_row_number.c.sky_distance,
+                with_row_number.c.location_type,
+                with_row_number.c.is_requested_vehicle,
+                with_row_number.c.is_driver_bid_vehicle,
+                with_row_number.c.driver_bid_price,
+                with_row_number.c.owner_bid,
+                with_row_number.c.is_on_load,
+                with_row_number.c.is_selected_vehicle,
+            )
+            .where(with_row_number.c.rn == 1)
+            .order_by(
+                with_row_number.c.is_selected_vehicle.desc(),
+                with_row_number.c.is_driver_bid_vehicle.desc(),
+                with_row_number.c.sky_distance.asc(),
+                with_row_number.c.vid.asc(),
+            )
         )
 
         return await self._paginate_distance(stmt, params)
@@ -744,9 +773,3 @@ class VehicleListService:
         # ----------------------------------------------------
 
         return -1, results
-
-    # ========================================================
-    # COUNT (удалено - больше не используется)
-    # ========================================================
-    # async def _count_rows(self, stmt) -> int:
-    #     ...  # УДАЛЕНО: это вызывало пересчет Haversine для всех строк
