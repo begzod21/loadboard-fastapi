@@ -53,14 +53,6 @@ async def list_vehicles(
         else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
     )
 
-    if True:
-        return PaginatedVehicles(
-            count=0,
-            next=None,
-            previous=None,
-            results=[],
-        )
-
     vehicle_ids_list = (
         [int(v) for v in vehicle_ids.split(",") if v.strip()]
         if vehicle_ids
