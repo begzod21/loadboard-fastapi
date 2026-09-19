@@ -393,19 +393,18 @@ class VehicleListService:
             cur = cur.where(radius_filter_cur)
             pln = pln.where(radius_filter_pln)
 
-        # TEMP diagnostic: no UNION — only current-location vehicles, to check
-        # whether union_all is the lag source. Revert to `union_all(cur, pln)`
-        # after the test.
+        unioned = union_all(cur, pln).subquery("veh")
+
         dist_order = []
         if params.vehicle_ids and not show_only_selected:
-            dist_order.append(literal_column_desc("is_selected_vehicle"))
+            dist_order.append(unioned.c.is_selected_vehicle.desc())
         dist_order.extend(
             [
-                literal_column_desc("is_driver_bid_vehicle"),
-                literal_column_asc("sky_distance"),
+                unioned.c.is_driver_bid_vehicle.desc(),
+                unioned.c.sky_distance.asc(),
             ]
         )
-        ordered = cur.order_by(*dist_order)
+        ordered = select(unioned).order_by(*dist_order)
         return await self._materialise(ordered, params)
 
     async def _materialise(self, ordered_stmt, params):
