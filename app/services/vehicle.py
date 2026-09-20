@@ -40,26 +40,38 @@ EARTH_RADIUS_MILES = 3958.756
 MILES_PER_DEGREE_LATITUDE = 69.0
 
 
-def _bounding_box(lat_col, lon_col, lat: float, lon: float, radius_miles: float | None):
-    """Square bounding box that contains the radius circle around (lat, lon).
-
-    Used only as a cheap pre-filter so the database can use a btree index on
-    latitude/longitude before the exact Haversine check. The box is always a
-    superset of the circle, so it never changes the result set.
-    """
+def _bounding_box(
+    lat_col,
+    lon_col,
+    lat: float,
+    lon: float,
+    radius_miles: float | None,
+):
     if radius_miles is None or radius_miles < 0:
         return None
+
     lat_delta = radius_miles / MILES_PER_DEGREE_LATITUDE
-    # Longitude degrees shrink as latitude moves away from the equator.
+
     lon_delta = radius_miles / (
         MILES_PER_DEGREE_LATITUDE * max(cos(radians(lat)), 0.001)
     )
-    # Small safety margin so floating point never clips the circle.
-    lat_delta += 0.25
-    lon_delta += 0.25
+
+    lat_min = lat - lat_delta
+    lat_max = lat + lat_delta
+    lon_min = lon - lon_delta
+    lon_max = lon + lon_delta
+
+    if (
+        lat_min < -90
+        or lat_max > 90
+        or lon_min < -180
+        or lon_max > 180
+    ):
+        return None
+
     return and_(
-        lat_col.between(lat - lat_delta, lat + lat_delta),
-        lon_col.between(lon - lon_delta, lon + lon_delta),
+        lat_col.between(lat_min, lat_max),
+        lon_col.between(lon_min, lon_max),
     )
 
 
