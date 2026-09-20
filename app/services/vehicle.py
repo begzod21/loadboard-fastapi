@@ -64,16 +64,29 @@ def _bounding_box(lat_col, lon_col, lat: float, lon: float, radius_miles: float 
 
 
 def _haversine(lat_col, lon_col, lat: float, lon: float):
-    """SQLAlchemy expression equal to the RawSQL Haversine used by the model."""
     lat_f = cast(lat_col, Float)
     lon_f = cast(lon_col, Float)
+
     inner = (
-        func.cos(func.radians(lat)) * func.cos(func.radians(lat_f))
+        func.cos(func.radians(lat))
+        * func.cos(func.radians(lat_f))
         * func.cos(func.radians(lon_f) - func.radians(lon))
-        + func.sin(func.radians(lat)) * func.sin(func.radians(lat_f))
+        + func.sin(func.radians(lat))
+        * func.sin(func.radians(lat_f))
     )
-    clamped = func.least(1, func.greatest(-1, inner))
-    return cast(EARTH_RADIUS_MILES * func.acos(clamped), Float)
+
+    clamped = func.least(
+        cast(1.0, Float),
+        func.greatest(
+            cast(-1.0, Float),
+            inner,
+        ),
+    )
+
+    return cast(
+        cast(EARTH_RADIUS_MILES, Float) * func.acos(clamped),
+        Float,
+    )
 
 
 @dataclass
