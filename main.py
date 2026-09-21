@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
     print("🔌 Connecting to database...")
     # Pre-open connections and configure ORM mappers so the first request on
     # each uvicorn worker doesn't pay the cold-start cost.
-    await warmup(connections=min(settings.DB_POOL_SIZE, 4))
+    await warmup()
     print("✅ Database connected")
     yield
     await close_db()
