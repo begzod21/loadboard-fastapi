@@ -303,8 +303,13 @@ class LoadDetailService:
         load_id: int,
         filters: LoadFilter,
     ) -> LoadDetailInfoSchema | None:
+        clauses = [Load.id == load_id, Load.is_deleted.is_(False)]
+        filter_conds = filters.conditions()
+        if filter_conds:
+            clauses.extend(filter_conds)
+
         load = await self.session.scalar(
-            select(Load).where(Load.id == load_id, Load.is_deleted.is_(False))
+            select(Load).where(and_(*clauses))
         )
         if load is None:
             return None
@@ -325,6 +330,8 @@ class LoadDetailService:
         )
         has_radius = filters.radius is not None and filters.radius > 0
         has_matching = _is_truthy(filters.has_matching_vehicles)
+        has_type_filter = bool(filters.vehicle_type)
+        is_filtered = has_vehicle_radius or has_radius or has_matching or has_type_filter
 
         if has_vehicle_radius:
             mode = "vehicle"
@@ -364,6 +371,8 @@ class LoadDetailService:
             )
 
         if load.pick_up_latitude is None or load.pick_up_longitude is None:
+            if is_filtered:
+                return None
             return LoadDetailInfoSchema(
                 id=load.id,
                 miles_out=0,
@@ -436,6 +445,10 @@ class LoadDetailService:
         load_type_raw = filters.vehicle_type or load.vehicle_type
         load_weight = load.weight or 0
 
+        selected_id_set = set(vehicle_ids)
+        selected_in_radius_count = 0
+        selected_typed_in_radius_count = 0
+
         stats_distances: list[int] = []
         current_in_radius_count = 0
         planned_in_radius_count = 0
@@ -501,6 +514,11 @@ class LoadDetailService:
                     stats_typed_distances.append(round(d_plan))  # type: ignore[arg-type]
                     planned_typed_in_radius_count += 1
 
+            if row.id in selected_id_set and (curr_in_radius or plan_in_radius):
+                selected_in_radius_count += 1
+                if type_matches:
+                    selected_typed_in_radius_count += 1
+
         nearest_miles = min(stats_distances) if stats_distances else 0
         nearest_vehicles_count = current_in_radius_count + planned_in_radius_count
 
@@ -510,6 +528,22 @@ class LoadDetailService:
         nearest_vehicles_count_by_type = (
             current_typed_in_radius_count + planned_typed_in_radius_count
         )
+
+        # Inclusion criteria when filtered: return 404 (None) if counts are 0
+        if has_matching:
+            if nearest_vehicles_count_by_type == 0:
+                return None
+            if mode == "vehicle" and selected_typed_in_radius_count == 0:
+                return None
+        elif mode == "vehicle":
+            if selected_in_radius_count == 0:
+                return None
+        elif has_radius:
+            if nearest_vehicles_count == 0:
+                return None
+
+        if has_type_filter and nearest_vehicles_count_by_type == 0:
+            return None
 
         return LoadDetailInfoSchema(
             id=load.id,
