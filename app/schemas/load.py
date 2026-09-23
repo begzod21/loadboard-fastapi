@@ -163,6 +163,11 @@ class LoadDetailInfoSchema(BaseModel):
     nearest_vehicles_count: int | None = None
     miles_out_by_type: int | None = None
     nearest_vehicles_count_by_type: int | None = None
+    id: int
+    miles_out: int = 0
+    nearest_vehicles_count: int = 0
+    miles_out_by_type: int = 0
+    nearest_vehicles_count_by_type: int = 0
 
 
 

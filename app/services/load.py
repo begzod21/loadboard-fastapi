@@ -343,6 +343,13 @@ class LoadDetailService:
                 radius_miles = float(self.tenant.cargo_distance)
             if filters.radius is not None and filters.radius > 0:
                 radius_miles = float(filters.radius)
+        elif (
+            self.tenant is not None
+            and self.tenant.cargo_distance is not None
+            and self.tenant.cargo_distance != -1
+        ):
+            mode = "radius"
+            radius_miles = float(self.tenant.cargo_distance)
         else:
             mode = "none"
             radius_miles = 0.0
@@ -352,19 +359,17 @@ class LoadDetailService:
                 id=load.id,
                 miles_out=load.miles_out or 0,
                 nearest_vehicles_count=load.nearest_vehicles_count or 0,
-                miles_out_by_type=None,
-                nearest_vehicles_count_by_type=None,
+                miles_out_by_type=0,
+                nearest_vehicles_count_by_type=0,
             )
-
-        include_by_type = bool(filters.vehicle_type) or has_matching
 
         if load.pick_up_latitude is None or load.pick_up_longitude is None:
             return LoadDetailInfoSchema(
                 id=load.id,
                 miles_out=0,
                 nearest_vehicles_count=0,
-                miles_out_by_type=0 if include_by_type else None,
-                nearest_vehicles_count_by_type=0 if include_by_type else None,
+                miles_out_by_type=0,
+                nearest_vehicles_count_by_type=0,
             )
 
         load_lat = float(load.pick_up_latitude)
@@ -428,7 +433,7 @@ class LoadDetailService:
 
         vehicle_rows = (await self.session.execute(v_query)).all()
 
-        load_type_raw = load.vehicle_type
+        load_type_raw = filters.vehicle_type or load.vehicle_type
         load_weight = load.weight or 0
 
         stats_distances: list[int] = []
@@ -499,16 +504,12 @@ class LoadDetailService:
         nearest_miles = min(stats_distances) if stats_distances else 0
         nearest_vehicles_count = current_in_radius_count + planned_in_radius_count
 
-        if include_by_type:
-            miles_out_by_type = (
-                min(stats_typed_distances) if stats_typed_distances else 0
-            )
-            nearest_vehicles_count_by_type = (
-                current_typed_in_radius_count + planned_typed_in_radius_count
-            )
-        else:
-            miles_out_by_type = None
-            nearest_vehicles_count_by_type = None
+        miles_out_by_type = (
+            min(stats_typed_distances) if stats_typed_distances else 0
+        )
+        nearest_vehicles_count_by_type = (
+            current_typed_in_radius_count + planned_typed_in_radius_count
+        )
 
         return LoadDetailInfoSchema(
             id=load.id,
@@ -547,10 +548,29 @@ def _is_truthy(value: object | None) -> bool:
     return str(value).strip().lower() in ("true", "t", "yes", "y", "1")
 
 
+TYPE_SYNONYMS: dict[str, set[str]] = {
+    "V": {"V", "VAN", "DRY VAN"},
+    "VAN": {"V", "VAN", "DRY VAN"},
+    "DRY VAN": {"V", "VAN", "DRY VAN"},
+    "R": {"R", "REEFER", "REFRIGERATED"},
+    "REEFER": {"R", "REEFER", "REFRIGERATED"},
+    "REFRIGERATED": {"R", "REEFER", "REFRIGERATED"},
+    "F": {"F", "FLATBED", "FB"},
+    "FB": {"F", "FLATBED", "FB"},
+    "FLATBED": {"F", "FLATBED", "FB"},
+    "SB": {"SB", "STRAIGHT BOX", "BOX TRUCK", "B"},
+    "BOX TRUCK": {"SB", "STRAIGHT BOX", "BOX TRUCK", "B"},
+    "STRAIGHT BOX": {"SB", "STRAIGHT BOX", "BOX TRUCK", "B"},
+    "HS": {"HS", "HOTSHOT", "HOT SHOT"},
+    "HOTSHOT": {"HS", "HOTSHOT", "HOT SHOT"},
+    "HOT SHOT": {"HS", "HOTSHOT", "HOT SHOT"},
+    "PO": {"PO", "POWER ONLY"},
+    "POWER ONLY": {"PO", "POWER ONLY"},
+}
+
+
 def _match_vehicle_type(load_type_raw: str | None, vehicle_type_raw: str | None) -> bool:
-    if not load_type_raw:
-        return True
-    if not vehicle_type_raw:
+    if not load_type_raw or not vehicle_type_raw:
         return False
 
     lt = load_type_raw.strip().upper()
@@ -559,10 +579,14 @@ def _match_vehicle_type(load_type_raw: str | None, vehicle_type_raw: str | None)
         return True
 
     load_types = {t.strip().upper() for t in load_type_raw.split(",") if t.strip()}
-    if vt in load_types:
-        return True
+    v_synonyms = TYPE_SYNONYMS.get(vt, {vt})
 
     for t in load_types:
+        if t == vt:
+            return True
+        t_synonyms = TYPE_SYNONYMS.get(t, {t})
+        if not t_synonyms.isdisjoint(v_synonyms):
+            return True
         if t in vt or vt in t:
             return True
 
