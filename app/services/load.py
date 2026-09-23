@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import math
 from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select, text
@@ -18,9 +19,10 @@ from ..models.load import (
     load_is_read_users,
     load_vehicle_teams,
 )
-from ..models.vehicle import Driver, Vehicle
+from ..models.vehicle import Driver, Vehicle, VehicleType
 from ..schemas.load import (
     BidInfoSchema,
+    LoadDetailInfoSchema,
     LoadDetailSchema,
     LoadListSchema,
 )
@@ -295,3 +297,290 @@ class LoadDetailService:
             )
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
+
+    async def get_info(
+        self,
+        load_id: int,
+        filters: LoadFilter,
+    ) -> LoadDetailInfoSchema | None:
+        clauses = [Load.id == load_id, Load.is_deleted.is_(False), Load.is_active.is_(True)]
+        if self.user.team_ids:
+            has_team = exists(
+                select(load_vehicle_teams.c.id).where(
+                    load_vehicle_teams.c.load_id == Load.id,
+                    load_vehicle_teams.c.team_id.in_(self.user.team_ids),
+                )
+            )
+            clauses.append(
+                or_(
+                    Load.has_driver_in_all_teams.is_(True),
+                    and_(Load.has_driver_in_all_teams.is_(False), has_team),
+                )
+            )
+
+        filter_clauses = filters.conditions()
+        if filter_clauses:
+            clauses.extend(filter_clauses)
+
+        load = await self.session.scalar(select(Load).where(and_(*clauses)))
+        if load is None:
+            return None
+
+        # Determine distance mode
+        vehicle_ids: list[int] = []
+        if filters.vehicle_ids:
+            vehicle_ids = [
+                int(vid.strip())
+                for vid in filters.vehicle_ids.split(",")
+                if vid.strip().isdigit()
+            ]
+
+        has_vehicle_radius = (
+            filters.vehicle_radius is not None
+            and filters.vehicle_radius > 0
+            and bool(vehicle_ids)
+        )
+        has_radius = filters.radius is not None and filters.radius > 0
+        has_matching = bool(filters.has_matching_vehicles)
+
+        if has_vehicle_radius:
+            mode = "vehicle"
+            radius_miles = float(filters.vehicle_radius)  # type: ignore[arg-type]
+        elif has_radius:
+            mode = "radius"
+            radius_miles = float(filters.radius)  # type: ignore[arg-type]
+        elif has_matching:
+            mode = "matching"
+            radius_miles = 300.0
+            if (
+                self.tenant is not None
+                and self.tenant.cargo_distance is not None
+                and self.tenant.cargo_distance != -1
+            ):
+                radius_miles = float(self.tenant.cargo_distance)
+            if filters.radius is not None and filters.radius > 0:
+                radius_miles = float(filters.radius)
+        else:
+            mode = "none"
+            radius_miles = 0.0
+
+        if mode == "none":
+            return LoadDetailInfoSchema(
+                id=load.id,
+                miles_out=load.miles_out or 0,
+                nearest_vehicles_count=load.nearest_vehicles_count or 0,
+                miles_out_by_type=None,
+                nearest_vehicles_count_by_type=None,
+            )
+
+        if load.pick_up_latitude is None or load.pick_up_longitude is None:
+            return None
+
+        load_lat = float(load.pick_up_latitude)
+        load_lon = float(load.pick_up_longitude)
+
+        v_query = (
+            select(
+                Vehicle.id,
+                Vehicle.latitude,
+                Vehicle.longitude,
+                Vehicle.planned_latitude,
+                Vehicle.planned_longitude,
+                Vehicle.planned_address,
+                Vehicle.payload_lbs,
+                VehicleType.name.label("type_name"),
+            )
+            .join(VehicleType, VehicleType.id == Vehicle.type_id, isouter=True)
+            .where(
+                Vehicle.status == 1,
+                Vehicle.registration_status == 4,
+                Vehicle.is_deleted.is_(False),
+            )
+        )
+
+        show_only_selected = bool(filters.show_only_selected)
+        if mode == "vehicle":
+            if show_only_selected:
+                v_query = v_query.where(Vehicle.id.in_(vehicle_ids))
+            else:
+                if self.user.team_ids:
+                    v_query = v_query.where(
+                        or_(
+                            Vehicle.id.in_(vehicle_ids),
+                            Vehicle.team_id.in_(self.user.team_ids),
+                            Vehicle.team_id.is_(None),
+                        )
+                    )
+        else:
+            if self.user.team_ids:
+                v_query = v_query.where(
+                    or_(
+                        Vehicle.team_id.in_(self.user.team_ids),
+                        Vehicle.team_id.is_(None),
+                    )
+                )
+            if filters.vehicle_types:
+                type_names = [
+                    t.strip() for t in filters.vehicle_types.split(",") if t.strip()
+                ]
+                if type_names:
+                    v_query = v_query.where(
+                        or_(
+                            VehicleType.name.in_(type_names),
+                            func.upper(VehicleType.name).in_(
+                                [n.upper() for n in type_names]
+                            ),
+                        )
+                    )
+
+        vehicle_rows = (await self.session.execute(v_query)).all()
+
+        load_type = (load.vehicle_type or "").strip().upper()
+        load_weight = load.weight or 0
+
+        selected_id_set = set(vehicle_ids)
+
+        has_selected_in_radius = False
+        has_selected_typed_weighted_in_radius = False
+        has_any_in_radius = False
+        has_any_typed_weighted_in_radius = False
+
+        stats_distances: list[int] = []
+        current_in_radius_count = 0
+        planned_in_radius_count = 0
+
+        stats_typed_distances: list[int] = []
+        current_typed_in_radius_count = 0
+        planned_typed_in_radius_count = 0
+
+        include_by_type = bool(filters.vehicle_type) or has_matching
+
+        for row in vehicle_rows:
+            vid = row.id
+            v_lat = float(row.latitude) if row.latitude is not None else None
+            v_lon = float(row.longitude) if row.longitude is not None else None
+            v_plat = (
+                float(row.planned_latitude)
+                if row.planned_latitude is not None
+                else None
+            )
+            v_plon = (
+                float(row.planned_longitude)
+                if row.planned_longitude is not None
+                else None
+            )
+            v_paddr = (row.planned_address or "").strip()
+            v_payload = row.payload_lbs if row.payload_lbs is not None else 0.0
+            v_type_name = (row.type_name or "").strip().upper()
+
+            curr_valid = v_lat is not None and v_lon is not None
+            plan_valid = (
+                v_plat is not None and v_plon is not None and bool(v_paddr)
+            )
+
+            d_curr = (
+                haversine_distance(v_lat, v_lon, load_lat, load_lon)
+                if curr_valid
+                else None
+            )
+            d_plan = (
+                haversine_distance(v_plat, v_plon, load_lat, load_lon)
+                if plan_valid
+                else None
+            )
+
+            curr_in_radius = d_curr is not None and d_curr <= radius_miles
+            plan_in_radius = d_plan is not None and d_plan <= radius_miles
+            in_radius = curr_in_radius or plan_in_radius
+
+            type_matches = bool(load_type and v_type_name and load_type == v_type_name)
+            weight_matches = load_weight <= 0 or (v_payload >= load_weight)
+
+            is_selected = vid in selected_id_set
+
+            if in_radius:
+                has_any_in_radius = True
+                if is_selected:
+                    has_selected_in_radius = True
+                if type_matches and weight_matches:
+                    has_any_typed_weighted_in_radius = True
+                    if is_selected:
+                        has_selected_typed_weighted_in_radius = True
+
+            # Stats pool filtering: with has_matching, only vehicles with weight_matches
+            if has_matching and not weight_matches:
+                continue
+
+            if curr_in_radius:
+                stats_distances.append(round(d_curr))  # type: ignore[arg-type]
+                current_in_radius_count += 1
+                if type_matches:
+                    stats_typed_distances.append(round(d_curr))  # type: ignore[arg-type]
+                    current_typed_in_radius_count += 1
+
+            if plan_in_radius:
+                stats_distances.append(round(d_plan))  # type: ignore[arg-type]
+                planned_in_radius_count += 1
+                if type_matches:
+                    stats_typed_distances.append(round(d_plan))  # type: ignore[arg-type]
+                    planned_typed_in_radius_count += 1
+
+        # Check inclusion criteria
+        if mode == "vehicle":
+            if not has_selected_in_radius:
+                return None
+            if has_matching and not has_selected_typed_weighted_in_radius:
+                return None
+        elif mode == "radius":
+            if has_matching:
+                if not has_any_typed_weighted_in_radius:
+                    return None
+            else:
+                if not has_any_in_radius:
+                    return None
+        elif mode == "matching":
+            if not has_any_typed_weighted_in_radius:
+                return None
+
+        nearest_miles = min(stats_distances) if stats_distances else 0
+        nearest_vehicles_count = current_in_radius_count + planned_in_radius_count
+
+        if include_by_type:
+            miles_out_by_type = (
+                min(stats_typed_distances) if stats_typed_distances else 0
+            )
+            nearest_vehicles_count_by_type = (
+                current_typed_in_radius_count + planned_typed_in_radius_count
+            )
+        else:
+            miles_out_by_type = None
+            nearest_vehicles_count_by_type = None
+
+        return LoadDetailInfoSchema(
+            id=load.id,
+            miles_out=nearest_miles,
+            nearest_vehicles_count=nearest_vehicles_count,
+            miles_out_by_type=miles_out_by_type,
+            nearest_vehicles_count_by_type=nearest_vehicles_count_by_type,
+        )
+
+
+EARTH_RADIUS_MILES = 3958.756
+
+
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rad_lat1 = math.radians(lat1)
+    rad_lon1 = math.radians(lon1)
+    rad_lat2 = math.radians(lat2)
+    rad_lon2 = math.radians(lon2)
+
+    dlat = rad_lat2 - rad_lat1
+    dlon = rad_lon2 - rad_lon1
+
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(rad_lat1) * math.cos(rad_lat2) * math.sin(dlon / 2.0) ** 2
+    )
+    c = 2.0 * math.asin(min(1.0, math.sqrt(max(0.0, a))))
+    return EARTH_RADIUS_MILES * c
+

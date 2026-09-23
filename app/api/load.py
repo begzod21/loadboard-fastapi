@@ -10,6 +10,7 @@ from ..schemas.load import (
     DefaultMessageOnBidSchema,
     LoadDetailSchema,
     PaginatedLoads,
+    LoadDetailInfoSchema,
 )
 from ..services.load import LoadDetailService, LoadListParams, LoadListService
 
@@ -83,3 +84,19 @@ async def retrieve_load(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     return load
 
+
+@router.get("/load/info/{load_id}/", response_model=LoadDetailInfoSchema)
+@router.get("/load/{load_id}/info/", response_model=LoadDetailInfoSchema, include_in_schema=False)
+async def get_load_detail_info(
+    request: Request,
+    load_id: int,
+    filters: LoadFilter = Depends(load_filter_params),
+    session: AsyncSession = Depends(get_tenant_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> LoadDetailInfoSchema:
+    tenant = getattr(request.state, "tenant", None)
+    service = LoadDetailService(session, user, tenant=tenant)
+    info = await service.get_info(load_id, filters)
+    if info is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+    return info

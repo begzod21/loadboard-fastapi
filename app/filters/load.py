@@ -4,9 +4,9 @@ import datetime
 from dataclasses import dataclass
 
 from fastapi import Query
-from sqlalchemy import ColumnElement, Float, cast, func
+from sqlalchemy import ColumnElement, Float, cast, exists, func, or_, select
 
-from ..models.load import Load
+from ..models.load import DriverBid, Load, load_vehicle_teams
 
 
 def _parse_date(value: str | None) -> datetime.date | None:
@@ -25,16 +25,26 @@ class LoadFilter:
     pick_up_at_state: str | None = None
     deliver_to_state: str | None = None
     vehicle_type: str | None = None
+    vehicle_types: str | None = None
     distance_type: str | None = None  # 'gte' | 'lte'
     distance_mile: float | None = None
     brokerage_type: str | None = None  # 'abs' | other
     brokerage: str | None = None
+    broker_ids: str | None = None
     pick_up_date: str | None = None
     deliver_date: str | None = None
     # address proximity (Haversine)
     address_radius: float | None = None
     lat: float | None = None
     lon: float | None = None
+    # vehicle & proximity filters
+    radius: float | None = None
+    vehicle_radius: float | None = None
+    vehicle_ids: str | None = None
+    has_matching_vehicles: bool = False
+    show_only_selected: bool = False
+    vehicle_team: str | None = None
+    is_driver_bid: str | None = None
 
     def conditions(self) -> list[ColumnElement[bool]]:
         clauses: list[ColumnElement[bool]] = []
@@ -62,12 +72,44 @@ class LoadFilter:
                 clauses.append(Load.contact_name.ilike(f"%{self.brokerage}%"))
             else:
                 clauses.append(~Load.contact_name.ilike(f"%{self.brokerage}%"))
+        if self.broker_ids:
+            b_ids = [int(b.strip()) for b in self.broker_ids.split(",") if b.strip().isdigit()]
+            if b_ids:
+                if self.brokerage_type == "inc":
+                    clauses.append(Load.broker_company_id.in_(b_ids))
+                elif self.brokerage_type == "exc":
+                    clauses.append(
+                        or_(Load.broker_company_id.not_in(b_ids), Load.broker_company_id.is_(None))
+                    )
         pick = _parse_date(self.pick_up_date)
         if pick:
             clauses.append(func.date(Load.pick_up_date) == pick)
         deliver = _parse_date(self.deliver_date)
         if deliver:
             clauses.append(func.date(Load.delivery_date) == deliver)
+
+        if self.vehicle_team:
+            teams = [int(t.strip()) for t in self.vehicle_team.split(",") if t.strip().isdigit()]
+            if teams:
+                clauses.append(
+                    exists(
+                        select(load_vehicle_teams.c.id).where(
+                            load_vehicle_teams.c.load_id == Load.id,
+                            load_vehicle_teams.c.team_id.in_(teams),
+                        )
+                    )
+                )
+
+        if self.is_driver_bid and str(self.is_driver_bid).lower() in ("true", "1", "t", "yes", "y"):
+            clauses.append(
+                exists(
+                    select(DriverBid.id).where(
+                        DriverBid.load_id == Load.id,
+                        DriverBid.dispatch_bid_date.is_(None),
+                        DriverBid.is_deleted.is_(False),
+                    )
+                )
+            )
 
         if self.address_radius and self.lat is not None and self.lon is not None:
             clauses.append(self._haversine_clause())
@@ -94,15 +136,24 @@ def load_filter_params(
     pick_up_at_state: str | None = Query(default=None),
     deliver_to_state: str | None = Query(default=None),
     vehicle_type: str | None = Query(default=None),
+    vehicle_types: str | None = Query(default=None, description="Vehicle pool by type"),
     distance_type: str | None = Query(default=None),
     distance_mile: float | None = Query(default=None),
     brokerage_type: str | None = Query(default=None),
     brokerage: str | None = Query(default=None),
+    broker_ids: str | None = Query(default=None),
     pick_up_date: str | None = Query(default=None),
     deliver_date: str | None = Query(default=None),
     address_radius: float | None = Query(default=None),
     lat: float | None = Query(default=None),
     lon: float | None = Query(default=None),
+    radius: float | None = Query(default=None),
+    vehicle_radius: float | None = Query(default=None),
+    vehicle_ids: str | None = Query(default=None),
+    has_matching_vehicles: bool = Query(default=False),
+    show_only_selected: bool = Query(default=False),
+    vehicle_team: str | None = Query(default=None),
+    is_driver_bid: str | None = Query(default=None),
 ) -> LoadFilter:
     return LoadFilter(
         pick_up_at_address=pick_up_at_address,
@@ -110,13 +161,23 @@ def load_filter_params(
         pick_up_at_state=pick_up_at_state,
         deliver_to_state=deliver_to_state,
         vehicle_type=vehicle_type,
+        vehicle_types=vehicle_types,
         distance_type=distance_type,
         distance_mile=distance_mile,
         brokerage_type=brokerage_type,
         brokerage=brokerage,
+        broker_ids=broker_ids,
         pick_up_date=pick_up_date,
         deliver_date=deliver_date,
         address_radius=address_radius,
         lat=lat,
         lon=lon,
+        radius=radius,
+        vehicle_radius=vehicle_radius,
+        vehicle_ids=vehicle_ids,
+        has_matching_vehicles=has_matching_vehicles,
+        show_only_selected=show_only_selected,
+        vehicle_team=vehicle_team,
+        is_driver_bid=is_driver_bid,
     )
+
