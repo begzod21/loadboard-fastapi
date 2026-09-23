@@ -86,7 +86,6 @@ async def retrieve_load(
 
 
 @router.get("/load/info/{load_id}/", response_model=LoadDetailInfoSchema)
-@router.get("/load/{load_id}/info/", response_model=LoadDetailInfoSchema, include_in_schema=False)
 async def get_load_detail_info(
     request: Request,
     load_id: int,

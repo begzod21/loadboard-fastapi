@@ -41,10 +41,12 @@ class LoadFilter:
     radius: float | None = None
     vehicle_radius: float | None = None
     vehicle_ids: str | None = None
-    has_matching_vehicles: bool = False
-    show_only_selected: bool = False
+    has_matching_vehicles: bool | str = False
+    show_only_selected: bool | str = False
     vehicle_team: str | None = None
     is_driver_bid: str | None = None
+    page: int | None = None
+    timezone: int | None = None
 
     def conditions(self) -> list[ColumnElement[bool]]:
         clauses: list[ColumnElement[bool]] = []
@@ -150,10 +152,12 @@ def load_filter_params(
     radius: float | None = Query(default=None),
     vehicle_radius: float | None = Query(default=None),
     vehicle_ids: str | None = Query(default=None),
-    has_matching_vehicles: bool = Query(default=False),
-    show_only_selected: bool = Query(default=False),
+    has_matching_vehicles: bool | str = Query(default=False),
+    show_only_selected: bool | str = Query(default=False),
     vehicle_team: str | None = Query(default=None),
     is_driver_bid: str | None = Query(default=None),
+    page: int | None = Query(default=None),
+    timezone: int | None = Query(default=None),
 ) -> LoadFilter:
     return LoadFilter(
         pick_up_at_address=pick_up_at_address,
@@ -179,5 +183,7 @@ def load_filter_params(
         show_only_selected=show_only_selected,
         vehicle_team=vehicle_team,
         is_driver_bid=is_driver_bid,
+        page=page,
+        timezone=timezone,
     )
 

@@ -303,26 +303,9 @@ class LoadDetailService:
         load_id: int,
         filters: LoadFilter,
     ) -> LoadDetailInfoSchema | None:
-        clauses = [Load.id == load_id, Load.is_deleted.is_(False), Load.is_active.is_(True)]
-        if self.user.team_ids:
-            has_team = exists(
-                select(load_vehicle_teams.c.id).where(
-                    load_vehicle_teams.c.load_id == Load.id,
-                    load_vehicle_teams.c.team_id.in_(self.user.team_ids),
-                )
-            )
-            clauses.append(
-                or_(
-                    Load.has_driver_in_all_teams.is_(True),
-                    and_(Load.has_driver_in_all_teams.is_(False), has_team),
-                )
-            )
-
-        filter_clauses = filters.conditions()
-        if filter_clauses:
-            clauses.extend(filter_clauses)
-
-        load = await self.session.scalar(select(Load).where(and_(*clauses)))
+        load = await self.session.scalar(
+            select(Load).where(Load.id == load_id, Load.is_deleted.is_(False))
+        )
         if load is None:
             return None
 
@@ -331,7 +314,7 @@ class LoadDetailService:
         if filters.vehicle_ids:
             vehicle_ids = [
                 int(vid.strip())
-                for vid in filters.vehicle_ids.split(",")
+                for vid in str(filters.vehicle_ids).split(",")
                 if vid.strip().isdigit()
             ]
 
@@ -341,7 +324,7 @@ class LoadDetailService:
             and bool(vehicle_ids)
         )
         has_radius = filters.radius is not None and filters.radius > 0
-        has_matching = bool(filters.has_matching_vehicles)
+        has_matching = _is_truthy(filters.has_matching_vehicles)
 
         if has_vehicle_radius:
             mode = "vehicle"
@@ -373,8 +356,16 @@ class LoadDetailService:
                 nearest_vehicles_count_by_type=None,
             )
 
+        include_by_type = bool(filters.vehicle_type) or has_matching
+
         if load.pick_up_latitude is None or load.pick_up_longitude is None:
-            return None
+            return LoadDetailInfoSchema(
+                id=load.id,
+                miles_out=0,
+                nearest_vehicles_count=0,
+                miles_out_by_type=0 if include_by_type else None,
+                nearest_vehicles_count_by_type=0 if include_by_type else None,
+            )
 
         load_lat = float(load.pick_up_latitude)
         load_lon = float(load.pick_up_longitude)
@@ -393,29 +384,31 @@ class LoadDetailService:
             .join(VehicleType, VehicleType.id == Vehicle.type_id, isouter=True)
             .where(
                 Vehicle.status == 1,
-                Vehicle.registration_status == 4,
+                Vehicle.registration_status.in_([1, 4]),
                 Vehicle.is_deleted.is_(False),
             )
         )
 
-        show_only_selected = bool(filters.show_only_selected)
+        show_only_selected = _is_truthy(filters.show_only_selected)
+        user_team_ids = [t for t in self.user.team_ids if t is not None]
+
         if mode == "vehicle":
             if show_only_selected:
                 v_query = v_query.where(Vehicle.id.in_(vehicle_ids))
             else:
-                if self.user.team_ids:
+                if user_team_ids and not self.user.is_superuser:
                     v_query = v_query.where(
                         or_(
                             Vehicle.id.in_(vehicle_ids),
-                            Vehicle.team_id.in_(self.user.team_ids),
+                            Vehicle.team_id.in_(user_team_ids),
                             Vehicle.team_id.is_(None),
                         )
                     )
         else:
-            if self.user.team_ids:
+            if user_team_ids and not self.user.is_superuser:
                 v_query = v_query.where(
                     or_(
-                        Vehicle.team_id.in_(self.user.team_ids),
+                        Vehicle.team_id.in_(user_team_ids),
                         Vehicle.team_id.is_(None),
                     )
                 )
@@ -435,15 +428,8 @@ class LoadDetailService:
 
         vehicle_rows = (await self.session.execute(v_query)).all()
 
-        load_type = (load.vehicle_type or "").strip().upper()
+        load_type_raw = load.vehicle_type
         load_weight = load.weight or 0
-
-        selected_id_set = set(vehicle_ids)
-
-        has_selected_in_radius = False
-        has_selected_typed_weighted_in_radius = False
-        has_any_in_radius = False
-        has_any_typed_weighted_in_radius = False
 
         stats_distances: list[int] = []
         current_in_radius_count = 0
@@ -453,10 +439,7 @@ class LoadDetailService:
         current_typed_in_radius_count = 0
         planned_typed_in_radius_count = 0
 
-        include_by_type = bool(filters.vehicle_type) or has_matching
-
         for row in vehicle_rows:
-            vid = row.id
             v_lat = float(row.latitude) if row.latitude is not None else None
             v_lon = float(row.longitude) if row.longitude is not None else None
             v_plat = (
@@ -469,14 +452,11 @@ class LoadDetailService:
                 if row.planned_longitude is not None
                 else None
             )
-            v_paddr = (row.planned_address or "").strip()
-            v_payload = row.payload_lbs if row.payload_lbs is not None else 0.0
-            v_type_name = (row.type_name or "").strip().upper()
+            v_payload = float(row.payload_lbs) if row.payload_lbs is not None else None
+            v_type_name = row.type_name
 
             curr_valid = v_lat is not None and v_lon is not None
-            plan_valid = (
-                v_plat is not None and v_plon is not None and bool(v_paddr)
-            )
+            plan_valid = v_plat is not None and v_plon is not None
 
             d_curr = (
                 haversine_distance(v_lat, v_lon, load_lat, load_lon)
@@ -491,23 +471,14 @@ class LoadDetailService:
 
             curr_in_radius = d_curr is not None and d_curr <= radius_miles
             plan_in_radius = d_plan is not None and d_plan <= radius_miles
-            in_radius = curr_in_radius or plan_in_radius
 
-            type_matches = bool(load_type and v_type_name and load_type == v_type_name)
-            weight_matches = load_weight <= 0 or (v_payload >= load_weight)
+            if not curr_in_radius and not plan_in_radius:
+                continue
 
-            is_selected = vid in selected_id_set
+            type_matches = _match_vehicle_type(load_type_raw, v_type_name)
+            weight_matches = _match_weight(load_weight, v_payload)
 
-            if in_radius:
-                has_any_in_radius = True
-                if is_selected:
-                    has_selected_in_radius = True
-                if type_matches and weight_matches:
-                    has_any_typed_weighted_in_radius = True
-                    if is_selected:
-                        has_selected_typed_weighted_in_radius = True
-
-            # Stats pool filtering: with has_matching, only vehicles with weight_matches
+            # In has_matching mode, only consider vehicles that can carry the load's weight
             if has_matching and not weight_matches:
                 continue
 
@@ -524,23 +495,6 @@ class LoadDetailService:
                 if type_matches:
                     stats_typed_distances.append(round(d_plan))  # type: ignore[arg-type]
                     planned_typed_in_radius_count += 1
-
-        # Check inclusion criteria
-        if mode == "vehicle":
-            if not has_selected_in_radius:
-                return None
-            if has_matching and not has_selected_typed_weighted_in_radius:
-                return None
-        elif mode == "radius":
-            if has_matching:
-                if not has_any_typed_weighted_in_radius:
-                    return None
-            else:
-                if not has_any_in_radius:
-                    return None
-        elif mode == "matching":
-            if not has_any_typed_weighted_in_radius:
-                return None
 
         nearest_miles = min(stats_distances) if stats_distances else 0
         nearest_vehicles_count = current_in_radius_count + planned_in_radius_count
@@ -583,4 +537,43 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     )
     c = 2.0 * math.asin(min(1.0, math.sqrt(max(0.0, a))))
     return EARTH_RADIUS_MILES * c
+
+
+def _is_truthy(value: object | None) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "t", "yes", "y", "1")
+
+
+def _match_vehicle_type(load_type_raw: str | None, vehicle_type_raw: str | None) -> bool:
+    if not load_type_raw:
+        return True
+    if not vehicle_type_raw:
+        return False
+
+    lt = load_type_raw.strip().upper()
+    vt = vehicle_type_raw.strip().upper()
+    if lt == vt:
+        return True
+
+    load_types = {t.strip().upper() for t in load_type_raw.split(",") if t.strip()}
+    if vt in load_types:
+        return True
+
+    for t in load_types:
+        if t in vt or vt in t:
+            return True
+
+    return False
+
+
+def _match_weight(load_weight: int | float | None, vehicle_payload: float | None) -> bool:
+    if load_weight is None or load_weight <= 0:
+        return True
+    if vehicle_payload is None:
+        return False
+    return vehicle_payload >= load_weight
+
 
