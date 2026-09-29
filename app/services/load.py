@@ -385,17 +385,11 @@ class LoadDetailService:
         load_lon = float(load.pick_up_longitude)
 
         v_query = (
-            select(
-                Vehicle.id,
-                Vehicle.latitude,
-                Vehicle.longitude,
-                Vehicle.planned_latitude,
-                Vehicle.planned_longitude,
-                Vehicle.planned_address,
-                Vehicle.payload_lbs,
-                VehicleType.name.label("type_name"),
+            select(Vehicle)
+            .options(
+                joinedload(Vehicle.type),
+                selectinload(Vehicle.types),
             )
-            .join(VehicleType, VehicleType.id == Vehicle.type_id, isouter=True)
             .where(
                 Vehicle.status == 1,
                 Vehicle.registration_status.in_([1, 4]),
@@ -426,21 +420,25 @@ class LoadDetailService:
                         Vehicle.team_id.is_(None),
                     )
                 )
-            if filters.vehicle_types:
-                type_names = [
-                    t.strip() for t in filters.vehicle_types.split(",") if t.strip()
-                ]
-                if type_names:
-                    v_query = v_query.where(
-                        or_(
-                            VehicleType.name.in_(type_names),
-                            func.upper(VehicleType.name).in_(
-                                [n.upper() for n in type_names]
-                            ),
-                        )
-                    )
 
-        vehicle_rows = (await self.session.execute(v_query)).all()
+        if filters.vehicle_types:
+            type_names = [
+                t.strip() for t in filters.vehicle_types.split(",") if t.strip()
+            ]
+            if type_names:
+                matching_names = set(type_names) | {n.upper() for n in type_names}
+                for n in list(matching_names):
+                    if n in TYPE_SYNONYMS:
+                        matching_names.update(TYPE_SYNONYMS[n])
+                names_list = list(matching_names)
+                v_query = v_query.where(
+                    or_(
+                        Vehicle.type.has(func.upper(VehicleType.name).in_(names_list)),
+                        Vehicle.types.any(func.upper(VehicleType.name).in_(names_list)),
+                    )
+                )
+
+        vehicle_rows = (await self.session.scalars(v_query)).unique().all()
 
         load_type_raw = filters.vehicle_type or load.vehicle_type
         load_weight = load.weight or 0
@@ -471,7 +469,7 @@ class LoadDetailService:
                 else None
             )
             v_payload = float(row.payload_lbs) if row.payload_lbs is not None else None
-            v_type_name = row.type_name
+            v_type_names = row.all_type_names
 
             curr_valid = v_lat is not None and v_lon is not None
             plan_valid = v_plat is not None and v_plon is not None
@@ -493,7 +491,7 @@ class LoadDetailService:
             if not curr_in_radius and not plan_in_radius:
                 continue
 
-            type_matches = _match_vehicle_type(load_type_raw, v_type_name)
+            type_matches = _match_vehicle_type(load_type_raw, v_type_names)
             weight_matches = _match_weight(load_weight, v_payload)
 
             # In has_matching mode, only consider vehicles that can carry the load's weight
@@ -603,12 +601,9 @@ TYPE_SYNONYMS: dict[str, set[str]] = {
 }
 
 
-def _match_vehicle_type(load_type_raw: str | None, vehicle_type_raw: str | None) -> bool:
-    if not load_type_raw or not vehicle_type_raw:
-        return False
-
+def _match_single_vehicle_type(load_type_raw: str, vt_single: str) -> bool:
     lt = load_type_raw.strip().upper()
-    vt = vehicle_type_raw.strip().upper()
+    vt = vt_single.strip().upper()
     if lt == vt:
         return True
 
@@ -625,6 +620,17 @@ def _match_vehicle_type(load_type_raw: str | None, vehicle_type_raw: str | None)
             return True
 
     return False
+
+
+def _match_vehicle_type(
+    load_type_raw: str | None,
+    vehicle_type_raw: str | list[str] | set[str] | tuple[str, ...] | None,
+) -> bool:
+    if not load_type_raw or not vehicle_type_raw:
+        return False
+    if isinstance(vehicle_type_raw, (list, set, tuple)):
+        return any(_match_single_vehicle_type(load_type_raw, vt) for vt in vehicle_type_raw if vt)
+    return _match_single_vehicle_type(load_type_raw, vehicle_type_raw)
 
 
 def _match_weight(load_weight: int | float | None, vehicle_payload: float | None) -> bool:

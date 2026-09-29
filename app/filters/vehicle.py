@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import Query
-from sqlalchemy import ColumnElement, String, and_, cast
+from sqlalchemy import ColumnElement, String, and_, cast, func, or_
 
-from ..models.vehicle import Vehicle
+from ..models.vehicle import Vehicle, VehicleType
 
 
 @dataclass
@@ -21,6 +21,10 @@ class VehicleFilter:
     make: str | None = None
     year: str | None = None
     is_deleted: bool | None = None
+    type: str | None = None
+    types: str | None = None
+    vehicle_type: str | None = None
+    vehicle_types: str | None = None
 
     def conditions(self) -> list[ColumnElement[bool]]:
         clauses: list[ColumnElement[bool]] = []
@@ -43,6 +47,42 @@ class VehicleFilter:
             clauses.append(Vehicle.year == self.year)
         if self.is_deleted is not None:
             clauses.append(Vehicle.is_deleted.is_(self.is_deleted))
+
+        type_inputs = [
+            t
+            for t in [self.type, self.types, self.vehicle_type, self.vehicle_types]
+            if t is not None
+        ]
+        if type_inputs:
+            raw_vals: list[str] = []
+            for ti in type_inputs:
+                raw_vals.extend([v.strip() for v in str(ti).split(",") if v.strip()])
+
+            type_clauses: list[ColumnElement[bool]] = []
+            ids = [int(v) for v in raw_vals if v.isdigit()]
+            if ids:
+                type_clauses.append(Vehicle.type_id.in_(ids))
+                type_clauses.append(Vehicle.types.any(VehicleType.id.in_(ids)))
+
+            names = [v.upper() for v in raw_vals if not v.isdigit()]
+            if names:
+                from ..services.load import TYPE_SYNONYMS
+
+                expanded_names: set[str] = set(names)
+                for n in names:
+                    if n in TYPE_SYNONYMS:
+                        expanded_names.update(TYPE_SYNONYMS[n])
+                names_list = list(expanded_names)
+                type_clauses.append(
+                    Vehicle.type.has(func.upper(VehicleType.name).in_(names_list))
+                )
+                type_clauses.append(
+                    Vehicle.types.any(func.upper(VehicleType.name).in_(names_list))
+                )
+
+            if type_clauses:
+                clauses.append(or_(*type_clauses))
+
         return clauses
 
     def combined(self) -> ColumnElement[bool] | None:
@@ -60,6 +100,10 @@ def vehicle_filter_params(
     make: str | None = Query(default=None),
     year: str | None = Query(default=None),
     is_deleted: bool | None = Query(default=None),
+    type: str | None = Query(default=None),
+    types: str | None = Query(default=None),
+    vehicle_type: str | None = Query(default=None),
+    vehicle_types: str | None = Query(default=None),
 ) -> VehicleFilter:
     return VehicleFilter(
         id=id,
@@ -71,4 +115,8 @@ def vehicle_filter_params(
         make=make,
         year=year,
         is_deleted=is_deleted,
+        type=type,
+        types=types,
+        vehicle_type=vehicle_type,
+        vehicle_types=vehicle_types,
     )

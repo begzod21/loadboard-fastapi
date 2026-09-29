@@ -116,6 +116,21 @@ class VehicleListParams:
     page_size: int = 20
 
 
+def build_matching_vehicle_type_condition(matching_vehicle_type: str):
+    from .load import TYPE_SYNONYMS
+
+    parts = [p.strip().upper() for p in matching_vehicle_type.split(",") if p.strip()]
+    matching_names: set[str] = set(parts)
+    for part in parts:
+        if part in TYPE_SYNONYMS:
+            matching_names.update(TYPE_SYNONYMS[part])
+    names_list = list(matching_names)
+    return or_(
+        Vehicle.type.has(func.upper(VehicleType.name).in_(names_list)),
+        Vehicle.types.any(func.upper(VehicleType.name).in_(names_list)),
+    )
+
+
 class VehicleListService:
     def __init__(
         self,
@@ -211,7 +226,7 @@ class VehicleListService:
         if matching_vehicle_type:
             base = and_(
                 base,
-                Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
+                build_matching_vehicle_type_condition(matching_vehicle_type),
             )
         if matching_weight is not None:
             base = and_(
@@ -236,7 +251,10 @@ class VehicleListService:
             .order_by(*order)
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
-            .options(selectinload(Vehicle.equipment))
+            .options(
+                selectinload(Vehicle.equipment),
+                selectinload(Vehicle.types),
+            )
         )
         vehicles = (await self.session.scalars(stmt)).unique().all()
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
@@ -303,7 +321,7 @@ class VehicleListService:
             if matching_vehicle_type:
                 cond = and_(
                     cond,
-                    Vehicle.type.has(func.upper(VehicleType.name) == matching_vehicle_type.upper()),
+                    build_matching_vehicle_type_condition(matching_vehicle_type),
                 )
             if matching_weight is not None:
                 cond = and_(
@@ -456,7 +474,10 @@ class VehicleListService:
             await self.session.scalars(
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
-                .options(selectinload(Vehicle.equipment))
+                .options(
+                    selectinload(Vehicle.equipment),
+                    selectinload(Vehicle.types),
+                )
             )
         ).unique().all()
         by_id = {v.id: v for v in vehicles}

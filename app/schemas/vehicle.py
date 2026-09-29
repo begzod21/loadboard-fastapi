@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..models.vehicle import Vehicle
 
@@ -40,6 +40,7 @@ class VehicleSchema(BaseModel):
     road_distance: float | None = None
 
     type_name: str | None = None
+    type_names: list[str] = Field(default_factory=list)
     team: int | None = None
     team_name: str | None = None
 
@@ -59,6 +60,7 @@ class VehicleSchema(BaseModel):
     notes: str | None = None
 
     type: int | None = None
+    types: list[int] = Field(default_factory=list)
     owner_company: int | None = None
     created_at: datetime.datetime | None = None
     updated_at: datetime.datetime | None = None
@@ -139,7 +141,8 @@ class VehicleSchema(BaseModel):
             owner_company_name=owner.company_name if owner else None,
             sky_distance=sky_distance,
             road_distance=road_distance,
-            type_name=vehicle.type.name if vehicle.type else None,
+            type_name=vehicle.type.name if vehicle.type else (vehicle.types[0].name if getattr(vehicle, "types", None) else None),
+            type_names=vehicle.all_type_names,
             team=vehicle.team_id,
             team_name=vehicle.team.name if vehicle.team else None,
             driver_bid_price=driver_bid_price,
@@ -154,6 +157,7 @@ class VehicleSchema(BaseModel):
             last_geo_date_time=vehicle.last_geo_date_time,
             notes=vehicle.notes,
             type=vehicle.type_id,
+            types=vehicle.all_type_ids,
             owner_company=vehicle.owner_company_id,
             created_at=vehicle.created_at,
             updated_at=vehicle.updated_at,

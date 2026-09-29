@@ -29,6 +29,13 @@ vehicle_equipment = Table(
     Column("equipment_id", ForeignKey("handbk_equipment.id"), primary_key=True),
 )
 
+vehicle_types = Table(
+    "owner_vehicle_types",
+    Base.metadata,
+    Column("vehicle_id", ForeignKey("owner_vehicle.id"), primary_key=True),
+    Column("vehicletype_id", ForeignKey("handbk_vehicletype.id"), primary_key=True),
+)
+
 
 class Equipment(Base):
     __tablename__ = "handbk_equipment"
@@ -152,10 +159,47 @@ class Vehicle(Base):
         foreign_keys=[second_driver_id], lazy="joined"
     )
     type: Mapped[VehicleType | None] = relationship(lazy="joined")
+    types: Mapped[list[VehicleType]] = relationship(
+        secondary=vehicle_types, lazy="selectin"
+    )
     team: Mapped[Team | None] = relationship(lazy="joined")
     equipment: Mapped[list[Equipment]] = relationship(
         secondary=vehicle_equipment, lazy="selectin"
     )
+
+    @property
+    def all_type_names(self) -> list[str]:
+        names: list[str] = []
+        try:
+            if self.type and self.type.name:
+                names.append(self.type.name)
+        except Exception:
+            pass
+        try:
+            if self.types:
+                for t in self.types:
+                    if t.name and t.name not in names:
+                        names.append(t.name)
+        except Exception:
+            pass
+        return names
+
+    @property
+    def all_type_ids(self) -> list[int]:
+        ids: list[int] = []
+        try:
+            if self.type_id is not None:
+                ids.append(self.type_id)
+        except Exception:
+            pass
+        try:
+            if self.types:
+                for t in self.types:
+                    if t.id is not None and t.id not in ids:
+                        ids.append(t.id)
+        except Exception:
+            pass
+        return ids
 
     @property
     def equipment_names(self) -> str:

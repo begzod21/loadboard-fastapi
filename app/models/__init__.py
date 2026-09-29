@@ -15,6 +15,7 @@ from .vehicle import (
     Vehicle,
     VehicleType,
     vehicle_equipment,
+    vehicle_types,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "Vehicle",
     "VehicleType",
     "vehicle_equipment",
+    "vehicle_types",
 ]
