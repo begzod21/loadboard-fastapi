@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from fastapi import Query
@@ -56,7 +57,7 @@ class VehicleFilter:
         if type_inputs:
             raw_vals: list[str] = []
             for ti in type_inputs:
-                raw_vals.extend([v.strip() for v in str(ti).split(",") if v.strip()])
+                raw_vals.extend([v.strip() for v in re.split(r"[,/|]", str(ti)) if v.strip()])
 
             type_clauses: list[ColumnElement[bool]] = []
             ids = [int(v) for v in raw_vals if v.isdigit()]

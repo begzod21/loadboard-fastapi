@@ -117,9 +117,10 @@ class VehicleListParams:
 
 
 def build_matching_vehicle_type_condition(matching_vehicle_type: str):
+    import re
     from .load import TYPE_SYNONYMS
 
-    parts = [p.strip().upper() for p in matching_vehicle_type.split(",") if p.strip()]
+    parts = [p.strip().upper() for p in re.split(r"[,/|]", matching_vehicle_type) if p.strip()]
     matching_names: set[str] = set(parts)
     for part in parts:
         if part in TYPE_SYNONYMS:

@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import logging
 import math
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select, text
@@ -336,9 +337,6 @@ class LoadDetailService:
         if has_vehicle_radius:
             mode = "vehicle"
             radius_miles = float(filters.vehicle_radius)  # type: ignore[arg-type]
-        elif has_radius:
-            mode = "radius"
-            radius_miles = float(filters.radius)  # type: ignore[arg-type]
         elif has_matching:
             mode = "matching"
             radius_miles = 300.0
@@ -350,6 +348,9 @@ class LoadDetailService:
                 radius_miles = float(self.tenant.cargo_distance)
             if filters.radius is not None and filters.radius > 0:
                 radius_miles = float(filters.radius)
+        elif has_radius:
+            mode = "radius"
+            radius_miles = float(filters.radius)  # type: ignore[arg-type]
         elif (
             self.tenant is not None
             and self.tenant.cargo_distance is not None
@@ -392,7 +393,7 @@ class LoadDetailService:
             )
             .where(
                 Vehicle.status == 1,
-                Vehicle.registration_status.in_([1, 4]),
+                Vehicle.registration_status == 4,
                 Vehicle.is_deleted.is_(False),
             )
         )
@@ -404,7 +405,7 @@ class LoadDetailService:
             if show_only_selected:
                 v_query = v_query.where(Vehicle.id.in_(vehicle_ids))
             else:
-                if user_team_ids and not self.user.is_superuser:
+                if user_team_ids:
                     v_query = v_query.where(
                         or_(
                             Vehicle.id.in_(vehicle_ids),
@@ -413,7 +414,7 @@ class LoadDetailService:
                         )
                     )
         else:
-            if user_team_ids and not self.user.is_superuser:
+            if user_team_ids:
                 v_query = v_query.where(
                     or_(
                         Vehicle.team_id.in_(user_team_ids),
@@ -471,8 +472,13 @@ class LoadDetailService:
             v_payload = float(row.payload_lbs) if row.payload_lbs is not None else None
             v_type_names = row.all_type_names
 
-            curr_valid = v_lat is not None and v_lon is not None
-            plan_valid = v_plat is not None and v_plon is not None
+            curr_valid = v_lat is not None and v_lon is not None and (v_lat != 0 or v_lon != 0)
+            plan_valid = (
+                v_plat is not None
+                and v_plon is not None
+                and (v_plat != 0 or v_plon != 0)
+                and bool(row.planned_address and row.planned_address.strip())
+            )
 
             d_curr = (
                 haversine_distance(v_lat, v_lon, load_lat, load_lon)
@@ -607,7 +613,7 @@ def _match_single_vehicle_type(load_type_raw: str, vt_single: str) -> bool:
     if lt == vt:
         return True
 
-    load_types = {t.strip().upper() for t in load_type_raw.split(",") if t.strip()}
+    load_types = {t.strip().upper() for t in re.split(r"[,/|]", load_type_raw) if t.strip()}
     v_synonyms = TYPE_SYNONYMS.get(vt, {vt})
 
     for t in load_types:
@@ -616,7 +622,7 @@ def _match_single_vehicle_type(load_type_raw: str, vt_single: str) -> bool:
         t_synonyms = TYPE_SYNONYMS.get(t, {t})
         if not t_synonyms.isdisjoint(v_synonyms):
             return True
-        if t in vt or vt in t:
+        if len(t) >= 4 and len(vt) >= 4 and (t in vt or vt in t):
             return True
 
     return False
