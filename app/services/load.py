@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, noload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import CurrentUser
@@ -29,6 +29,7 @@ from ..schemas.load import (
 )
 from ..schemas.company import TenantCompanyOut
 from .notify import SenderToWebSocket
+from .vehicle import _bounding_box
 
 logger = logging.getLogger(__name__)
 
@@ -385,11 +386,44 @@ class LoadDetailService:
         load_lat = float(load.pick_up_latitude)
         load_lon = float(load.pick_up_longitude)
 
+        # Construct bounding box to restrict vehicle search space using PostgreSQL indexes
+        curr_bbox = _bounding_box(
+            Vehicle.latitude,
+            Vehicle.longitude,
+            load_lat,
+            load_lon,
+            radius_miles,
+        )
+        plan_bbox = _bounding_box(
+            Vehicle.planned_latitude,
+            Vehicle.planned_longitude,
+            load_lat,
+            load_lon,
+            radius_miles,
+        )
+        loc_cond = None
+        if curr_bbox is not None and plan_bbox is not None:
+            loc_cond = or_(
+                curr_bbox,
+                and_(
+                    plan_bbox,
+                    Vehicle.planned_address.is_not(None),
+                    Vehicle.planned_address != "",
+                ),
+            )
+        elif curr_bbox is not None:
+            loc_cond = curr_bbox
+
         v_query = (
             select(Vehicle)
             .options(
                 joinedload(Vehicle.type),
                 selectinload(Vehicle.types),
+                noload(Vehicle.owner_company),
+                noload(Vehicle.driver),
+                noload(Vehicle.second_driver),
+                noload(Vehicle.team),
+                noload(Vehicle.equipment),
             )
             .where(
                 Vehicle.status == 1,
@@ -406,13 +440,12 @@ class LoadDetailService:
                 v_query = v_query.where(Vehicle.id.in_(vehicle_ids))
             else:
                 if user_team_ids:
-                    v_query = v_query.where(
-                        or_(
-                            Vehicle.id.in_(vehicle_ids),
-                            Vehicle.team_id.in_(user_team_ids),
-                            Vehicle.team_id.is_(None),
-                        )
-                    )
+                    team_cond = or_(Vehicle.team_id.in_(user_team_ids), Vehicle.team_id.is_(None))
+                    if loc_cond is not None:
+                        team_cond = and_(team_cond, loc_cond)
+                    v_query = v_query.where(or_(Vehicle.id.in_(vehicle_ids), team_cond))
+                elif loc_cond is not None:
+                    v_query = v_query.where(or_(Vehicle.id.in_(vehicle_ids), loc_cond))
         else:
             if user_team_ids:
                 v_query = v_query.where(
@@ -421,6 +454,22 @@ class LoadDetailService:
                         Vehicle.team_id.is_(None),
                     )
                 )
+            if loc_cond is not None:
+                v_query = v_query.where(loc_cond)
+
+        load_type_raw = filters.vehicle_type or load.vehicle_type
+        load_weight = load.weight or 0
+
+        if has_matching and load_weight > 0:
+            if mode == "vehicle" and not show_only_selected:
+                v_query = v_query.where(
+                    or_(
+                        Vehicle.id.in_(vehicle_ids),
+                        Vehicle.payload_lbs >= load_weight,
+                    )
+                )
+            elif mode != "vehicle":
+                v_query = v_query.where(Vehicle.payload_lbs >= load_weight)
 
         if filters.vehicle_types:
             type_names = [
@@ -440,9 +489,6 @@ class LoadDetailService:
                 )
 
         vehicle_rows = (await self.session.scalars(v_query)).unique().all()
-
-        load_type_raw = filters.vehicle_type or load.vehicle_type
-        load_weight = load.weight or 0
 
         selected_id_set = set(vehicle_ids)
         selected_in_radius_count = 0
