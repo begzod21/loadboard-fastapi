@@ -5,6 +5,7 @@ from .load import (
     DriverBid,
     Load,
     load_is_read_users,
+    load_pinned_users,
     load_vehicle_teams,
 )
 from .vehicle import (
@@ -25,6 +26,7 @@ __all__ = [
     "DriverBid",
     "Load",
     "load_is_read_users",
+    "load_pinned_users",
     "load_vehicle_teams",
     "Driver",
     "Equipment",

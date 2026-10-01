@@ -6,7 +6,7 @@ import math
 import re
 from dataclasses import dataclass
 
-from sqlalchemy import and_, exists, func, or_, select, text
+from sqlalchemy import and_, exists, func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import joinedload, noload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from ..models.load import (
     DriverBid,
     Load,
     load_is_read_users,
+    load_pinned_users,
     load_vehicle_teams,
 )
 from ..models.vehicle import Driver, Team, Vehicle, VehicleType
@@ -45,28 +46,52 @@ class LoadListParams:
 
 
 class LoadListService:
-    def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        user: CurrentUser,
+        tenant: TenantCompanyOut | None = None,
+    ) -> None:
         self.session = session
         self.user = user
+        self.tenant = tenant
         self.team_ids = user.team_ids
 
     async def list(
         self, params: LoadListParams, filters: LoadFilter
     ) -> tuple[int, list[LoadListSchema]]:
         cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=60)
-        cargo_distance = (
-            params.cargo_distance
-            if params.cargo_distance is not None
-            else -1
-        )
+
+        tenant_cargo_dist = getattr(self.tenant, "cargo_distance", None) if self.tenant else None
+        if params.cargo_distance is not None:
+            try:
+                resolved_radius = float(params.cargo_distance)
+            except (ValueError, TypeError):
+                resolved_radius = None
+        elif tenant_cargo_dist is not None:
+            resolved_radius = float(tenant_cargo_dist)
+        else:
+            resolved_radius = None
+
+        vehicle_filters_used = False
+        for r_val in (filters.radius, filters.vehicle_radius):
+            try:
+                if r_val is not None and float(r_val) > 0:
+                    vehicle_filters_used = True
+                    break
+            except (TypeError, ValueError):
+                continue
+
+        if not vehicle_filters_used and str(filters.has_matching_vehicles or "").lower() in (
+            "true", "t", "yes", "y", "1"
+        ):
+            vehicle_filters_used = True
 
         clauses = [Load.is_active.is_(True), Load.is_deleted.is_(False)]
-        if cargo_distance != -1:
-            clauses.append(Load.nearest_vehicles_count > 0)
 
-        vehicle_scope = [Vehicle.status == 1, Vehicle.registration_status == 4]
-        if self.team_ids:
-            vehicle_scope.append(Vehicle.team_id.in_(self.team_ids))
+        company_cargo_dist = tenant_cargo_dist if tenant_cargo_dist is not None else -1
+        if company_cargo_dist != -1 and not vehicle_filters_used:
+            clauses.append(Load.nearest_vehicles_count > 0)
 
         if self.team_ids:
             has_team = exists(
@@ -82,10 +107,28 @@ class LoadListService:
                 )
             )
 
+        vehicle_scope = [
+            Vehicle.status == 1,
+            Vehicle.registration_status == 4,
+            Vehicle.is_deleted.is_(False),
+        ]
+        if self.team_ids:
+            vehicle_scope.append(
+                or_(
+                    Vehicle.team_id.in_(self.team_ids),
+                    Vehicle.team_id.is_(None),
+                )
+            )
+
         is_bid_col = exists(
             select(Bid.id)
             .join(Vehicle, Vehicle.id == Bid.vehicle_id)
-            .where(Bid.load_id == Load.id, Bid.created_at >= cutoff, *vehicle_scope)
+            .where(
+                Bid.load_id == Load.id,
+                Bid.is_deleted.is_(False),
+                Bid.created_at >= cutoff,
+                *vehicle_scope,
+            )
         )
         is_driver_bid_col = exists(
             select(DriverBid.id)
@@ -93,6 +136,7 @@ class LoadListService:
             .where(
                 DriverBid.load_id == Load.id,
                 DriverBid.dispatch_bid_date.is_(None),
+                DriverBid.is_deleted.is_(False),
                 DriverBid.created_at >= cutoff,
                 *vehicle_scope,
             )
@@ -104,11 +148,21 @@ class LoadListService:
                     load_is_read_users.c.user_id == self.user.user_id,
                 )
             )
+            is_pinned_col = exists(
+                select(load_pinned_users.c.id).where(
+                    load_pinned_users.c.load_id == Load.id,
+                    load_pinned_users.c.user_id == self.user.user_id,
+                )
+            )
         else:
-            is_read_col = None
+            is_read_col = literal(False)
+            is_pinned_col = literal(False)
 
         # django-filter clauses
         clauses.extend(filters.conditions())
+        if filters.is_driver_bid and str(filters.is_driver_bid).lower() in ("true", "1", "t", "yes", "y"):
+            clauses.append(is_driver_bid_col)
+
         where = and_(*clauses)
 
         count = await self.session.scalar(
@@ -117,14 +171,22 @@ class LoadListService:
         if not count:
             return 0, []
 
-        cols = [Load, is_bid_col.label("is_bid"), is_driver_bid_col.label("is_driver_bid")]
-        if is_read_col is not None:
-            cols.append(is_read_col.label("is_read"))
+        cols = [
+            Load,
+            is_bid_col.label("is_bid"),
+            is_driver_bid_col.label("is_driver_bid"),
+            is_read_col.label("is_read"),
+            is_pinned_col.label("is_pinned"),
+        ]
 
         stmt = (
             select(*cols)
             .where(where)
-            .order_by(Load.received_date.desc())
+            .order_by(
+                is_pinned_col.desc(),
+                Load.received_date.desc().nulls_last(),
+                Load.id.desc(),
+            )
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
             .options(
@@ -137,10 +199,11 @@ class LoadListService:
         results: list[LoadListSchema] = [
             LoadListSchema.from_load(
                 row[0],
-                is_bid=row.is_bid,
-                is_driver_bid=row.is_driver_bid,
-                is_read=getattr(row, "is_read", False),
-                radius=cargo_distance,
+                is_bid=bool(row.is_bid),
+                is_driver_bid=bool(row.is_driver_bid),
+                is_read=bool(row.is_read),
+                is_pinned=bool(row.is_pinned),
+                radius=resolved_radius,
             )
             for row in rows
         ]

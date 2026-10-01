@@ -18,6 +18,7 @@ router = APIRouter(prefix="/app/api", tags=["load"])
 
 
 @router.get("/load/list/", response_model=PaginatedLoads)
+@router.get("/load/list", response_model=PaginatedLoads, include_in_schema=False)
 async def list_loads(
     request: Request,
     cargo_distance: float | None = Query(default=None, description="Override tenant cargo_distance"),
@@ -27,16 +28,10 @@ async def list_loads(
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> PaginatedLoads:
-    tenant_cargo_distance = request.state.tenant.cargo_distance
-    resolved_cargo_distance = (
-        cargo_distance
-        if cargo_distance is not None
-        else (tenant_cargo_distance if tenant_cargo_distance is not None else -1)
-    )
-
-    service = LoadListService(session, user)
+    tenant = getattr(request.state, "tenant", None)
+    service = LoadListService(session, user, tenant=tenant)
     params = LoadListParams(
-        cargo_distance=resolved_cargo_distance,
+        cargo_distance=cargo_distance,
         page=page,
         page_size=page_size,
     )

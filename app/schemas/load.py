@@ -62,8 +62,10 @@ class LoadListSchema(BaseModel):
 
     miles_out: int | None = None
     nearest_vehicles_count: int | None = None
+    miles_out_by_type: int | None = None
+    nearest_vehicles_count_by_type: int | None = None
     radius: float | None = None
-    broker_rating: int | None = None
+    broker_rating: float | int | None = None
     count_day: int | None = None
     vehicle_teams: list[int] = Field(default_factory=list)
     broker_company: int | None = None
@@ -100,8 +102,10 @@ class LoadListSchema(BaseModel):
             pick_up_longitude=load.pick_up_longitude,
             deliver_to_state=load.deliver_to_state,
             delivery_date=load.delivery_date,
-            miles_out=load.miles_out,
-            nearest_vehicles_count=load.nearest_vehicles_count,
+            miles_out=getattr(load, "miles_out", None),
+            nearest_vehicles_count=getattr(load, "nearest_vehicles_count", None),
+            miles_out_by_type=getattr(load, "miles_out_by_type", None),
+            nearest_vehicles_count_by_type=getattr(load, "nearest_vehicles_count_by_type", None),
             radius=radius,
             broker_rating=load.broker_company.rating if load.broker_company else None,
             count_day=load.count_day,

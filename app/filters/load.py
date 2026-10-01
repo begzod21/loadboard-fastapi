@@ -102,16 +102,6 @@ class LoadFilter:
                     )
                 )
 
-        if self.is_driver_bid and str(self.is_driver_bid).lower() in ("true", "1", "t", "yes", "y"):
-            clauses.append(
-                exists(
-                    select(DriverBid.id).where(
-                        DriverBid.load_id == Load.id,
-                        DriverBid.dispatch_bid_date.is_(None),
-                        DriverBid.is_deleted.is_(False),
-                    )
-                )
-            )
 
         if self.address_radius and self.lat is not None and self.lon is not None:
             clauses.append(self._haversine_clause())

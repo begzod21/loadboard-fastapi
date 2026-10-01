@@ -34,6 +34,14 @@ load_is_read_users = Table(
     Column("user_id", Integer),
 )
 
+load_pinned_users = Table(
+    "load_load_pinned_users",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("load_id", ForeignKey("load_load.id")),
+    Column("user_id", Integer),
+)
+
 
 class BrokerCompany(Base):
     __tablename__ = "broker_brokercompany"
