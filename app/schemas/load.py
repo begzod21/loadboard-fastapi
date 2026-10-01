@@ -140,6 +140,8 @@ class BidInfoSchema(BaseModel):
     driver_name: str | None = None
     driver_price: float | None = 0
     broker_price: float | None = 0
+    team: int | None = None
+    team_name: str | None = None
 
 
 class DefaultMessageOnBidSchema(BaseModel):

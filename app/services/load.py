@@ -20,7 +20,7 @@ from ..models.load import (
     load_is_read_users,
     load_vehicle_teams,
 )
-from ..models.vehicle import Driver, Vehicle, VehicleType
+from ..models.vehicle import Driver, Team, Vehicle, VehicleType
 from ..schemas.load import (
     BidInfoSchema,
     LoadDetailInfoSchema,
@@ -187,11 +187,13 @@ class LoadDetailService:
                     Bid.broker_price,
                     Bid.dispatcher_id,
                     Vehicle.team_id,
+                    Team.name.label("team_name"),
                     Vehicle.object_id,
                     Vehicle.driver_id,
                 )
                 .select_from(Bid)
                 .join(Vehicle, Vehicle.id == Bid.vehicle_id, isouter=True)
+                .join(Team, Team.id == Vehicle.team_id, isouter=True)
                 .where(Bid.load_id == load.id)
                 .order_by(Bid.id.desc())
             )
@@ -267,6 +269,8 @@ class LoadDetailService:
                         driver_name=driver_name,
                         driver_price=(row.get("driver_price") or 0) if show_prices else 0,
                         broker_price=(row.get("broker_price") or 0) if show_prices else 0,
+                        team=row.get("team_id"),
+                        team_name=row.get("team_name"),
                     )
                 )
 
