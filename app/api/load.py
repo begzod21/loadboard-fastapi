@@ -23,7 +23,7 @@ async def list_loads(
     request: Request,
     cargo_distance: float | None = Query(default=None, description="Override tenant cargo_distance"),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=50, ge=1, le=1000),
     filters: LoadFilter = Depends(load_filter_params),
     session: AsyncSession = Depends(get_tenant_db),
     user: CurrentUser = Depends(get_current_user),
