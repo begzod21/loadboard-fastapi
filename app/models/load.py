@@ -15,6 +15,7 @@ from sqlalchemy import (
     Table,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from geoalchemy2 import Geography
 
 from ..core.database import Base
 
@@ -69,6 +70,9 @@ class Load(Base):
     pick_up_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     pick_up_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
     pick_up_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
+    pick_up_location: Mapped[object | None] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326), nullable=True
+    )
 
     deliver_to_state: Mapped[str | None] = mapped_column(String(255))
     delivery_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
