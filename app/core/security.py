@@ -12,11 +12,83 @@ from app.core.dependencies import get_tenant_db
 @dataclass
 class CurrentUser:
     team_ids: list[int] = field(default_factory=list)
+    company_team_ids: list[int] = field(default_factory=list)
+    personal_team_id: int | None = None
     user_id: int | None = None
     user_uuid: str | None = None
     is_superuser: bool = False
     permissions: set[str] = field(default_factory=set)
-    
+
+    def __post_init__(self):
+        if self.team_ids and not self.company_team_ids and self.personal_team_id is None:
+            self.company_team_ids = [t for t in self.team_ids if t is not None]
+
+    @property
+    def has_company_teams(self) -> bool:
+        return bool(self.company_team_ids)
+
+    def get_vehicle_team_condition(self):
+        from sqlalchemy import and_, or_, select
+        from app.models.vehicle import Team, Vehicle
+
+        if self.has_company_teams:
+            allowed_ids = list(self.company_team_ids)
+            if self.personal_team_id:
+                allowed_ids.append(self.personal_team_id)
+            return or_(
+                Vehicle.team_id.in_(allowed_ids),
+                Vehicle.team_id.is_(None),
+            )
+        else:
+            company_subquery = select(Team.id).where(
+                or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
+                Team.user_id.is_(None),
+            )
+            conds = [
+                Vehicle.team_id.is_(None),
+                Vehicle.team_id.in_(company_subquery),
+            ]
+            if self.personal_team_id:
+                conds.append(Vehicle.team_id == self.personal_team_id)
+            return or_(*conds)
+
+    def get_load_team_condition(self):
+        from sqlalchemy import and_, exists, or_, select
+        from app.models.load import Load, load_vehicle_teams
+        from app.models.vehicle import Team
+
+        if self.has_company_teams:
+            allowed_ids = list(self.company_team_ids)
+            if self.personal_team_id:
+                allowed_ids.append(self.personal_team_id)
+            has_team = exists(
+                select(load_vehicle_teams.c.id).where(
+                    load_vehicle_teams.c.load_id == Load.id,
+                    load_vehicle_teams.c.team_id.in_(allowed_ids),
+                )
+            )
+        else:
+            team_conds = [
+                and_(
+                    or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
+                    Team.user_id.is_(None),
+                ),
+            ]
+            if self.personal_team_id:
+                team_conds.append(Team.id == self.personal_team_id)
+            has_team = exists(
+                select(load_vehicle_teams.c.id)
+                .join(Team, Team.id == load_vehicle_teams.c.team_id)
+                .where(
+                    load_vehicle_teams.c.load_id == Load.id,
+                    or_(*team_conds),
+                )
+            )
+
+        return or_(
+            Load.has_driver_in_all_teams.is_(True),
+            and_(Load.has_driver_in_all_teams.is_(False), has_team),
+        )
 
 
 def _credentials_exception(detail: str) -> HTTPException:
@@ -66,6 +138,24 @@ async def get_current_user(
                 (
                     SELECT array_agg(DISTINCT ut.team_id)
                     FROM user_user_teams ut
+                    JOIN user_team t ON t.id = ut.team_id
+                    WHERE ut.user_id = u.id
+                      AND (t.is_personal IS FALSE OR t.is_personal IS NULL)
+                      AND t.user_id IS NULL
+                ) AS company_team_ids,
+                (
+                    SELECT t.id
+                    FROM user_team t
+                    WHERE t.is_personal IS TRUE
+                      AND (
+                          t.user_id = u.id
+                          OR t.id IN (SELECT ut.team_id FROM user_user_teams ut WHERE ut.user_id = u.id)
+                      )
+                    LIMIT 1
+                ) AS personal_team_id,
+                (
+                    SELECT array_agg(DISTINCT ut.team_id)
+                    FROM user_user_teams ut
                     WHERE ut.user_id = u.id
                 ) AS team_ids,
                 (
@@ -91,7 +181,9 @@ async def get_current_user(
         user_id=user_id,
         user_uuid=str(user_uuid) if user_uuid is not None else None,
         is_superuser=row.is_superuser,
-        team_ids=row.team_ids or [],
+        team_ids=[t for t in (row.team_ids or []) if t is not None],
+        company_team_ids=[t for t in (row.company_team_ids or []) if t is not None],
+        personal_team_id=row.personal_team_id,
         permissions=set(row.permissions or []),
     )
     return user

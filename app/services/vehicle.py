@@ -332,9 +332,7 @@ class VehicleListService:
             return cond
 
         def team_filter():
-            if not self.team_ids:
-                return None
-            cond = or_(Vehicle.team_id.in_(self.team_ids), Vehicle.team_id.is_(None))
+            cond = self.user.get_vehicle_team_condition()
             if is_bid and vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             return cond
@@ -502,15 +500,16 @@ class VehicleListService:
         return count, results
 
     async def _driver_bid_vehicle_ids(self, load_id: int) -> list[int]:
-        stmt = select(DriverBid.vehicle_id).where(
-            DriverBid.load_id == load_id,
-            DriverBid.vehicle_id.is_not(None),
-            DriverBid.is_deleted.is_(False)
-        )
-        if self.team_ids:
-            stmt = stmt.join(Vehicle, Vehicle.id == DriverBid.vehicle_id).where(
-                or_(Vehicle.team_id.in_(self.team_ids), Vehicle.team_id.is_(None))
+        stmt = (
+            select(DriverBid.vehicle_id)
+            .join(Vehicle, Vehicle.id == DriverBid.vehicle_id)
+            .where(
+                DriverBid.load_id == load_id,
+                DriverBid.vehicle_id.is_not(None),
+                DriverBid.is_deleted.is_(False),
+                self.user.get_vehicle_team_condition(),
             )
+        )
         return [vid for vid in (await self.session.scalars(stmt)).all() if vid is not None]
 
 

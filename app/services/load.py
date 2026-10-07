@@ -45,9 +45,15 @@ class LoadListParams:
 
 
 class LoadListService:
-    def __init__(self, session: AsyncSession, user: CurrentUser) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        user: CurrentUser,
+        tenant: TenantCompanyOut | None = None,
+    ) -> None:
         self.session = session
         self.user = user
+        self.tenant = tenant
         self.team_ids = user.team_ids
 
     async def list(
@@ -64,23 +70,13 @@ class LoadListService:
         if cargo_distance != -1:
             clauses.append(Load.nearest_vehicles_count > 0)
 
-        vehicle_scope = [Vehicle.status == 1, Vehicle.registration_status == 4]
-        if self.team_ids:
-            vehicle_scope.append(Vehicle.team_id.in_(self.team_ids))
+        vehicle_scope = [
+            Vehicle.status == 1,
+            Vehicle.registration_status == 4,
+            self.user.get_vehicle_team_condition(),
+        ]
 
-        if self.team_ids:
-            has_team = exists(
-                select(load_vehicle_teams.c.id).where(
-                    load_vehicle_teams.c.load_id == Load.id,
-                    load_vehicle_teams.c.team_id.in_(self.team_ids),
-                )
-            )
-            clauses.append(
-                or_(
-                    Load.has_driver_in_all_teams.is_(True),
-                    and_(Load.has_driver_in_all_teams.is_(False), has_team),
-                )
-            )
+        clauses.append(self.user.get_load_team_condition())
 
         is_bid_col = exists(
             select(Bid.id)
@@ -158,7 +154,11 @@ class LoadDetailService:
         ) -> LoadDetailSchema | None:
         load = await self.session.scalar(
             select(Load)
-            .where(Load.id == load_id, Load.is_deleted.is_(False))
+            .where(
+                Load.id == load_id,
+                Load.is_deleted.is_(False),
+                self.user.get_load_team_condition(),
+            )
             .options(
                 joinedload(Load.broker_company),
                 selectinload(Load.points),
@@ -199,13 +199,7 @@ class LoadDetailService:
             )
             if view_mode == "own":
                 stmt = stmt.where(Bid.dispatcher_id == self.user.user_id)
-            if self.user.team_ids:
-                stmt = stmt.where(
-                    or_(
-                        Vehicle.team_id.is_(None),
-                        Vehicle.team_id.in_(self.user.team_ids),
-                    )
-                )
+            stmt = stmt.where(self.user.get_vehicle_team_condition())
 
             rows = (await self.session.execute(stmt)).mappings().all()
 
@@ -309,7 +303,11 @@ class LoadDetailService:
         load_id: int,
         filters: LoadFilter,
     ) -> LoadDetailInfoSchema | None:
-        clauses = [Load.id == load_id, Load.is_deleted.is_(False)]
+        clauses = [
+            Load.id == load_id,
+            Load.is_deleted.is_(False),
+            self.user.get_load_team_condition(),
+        ]
         filter_conds = filters.conditions()
         if filter_conds:
             clauses.extend(filter_conds)
@@ -437,27 +435,17 @@ class LoadDetailService:
         )
 
         show_only_selected = _is_truthy(filters.show_only_selected)
-        user_team_ids = [t for t in self.user.team_ids if t is not None]
+        team_cond = self.user.get_vehicle_team_condition()
 
         if mode == "vehicle":
             if show_only_selected:
                 v_query = v_query.where(Vehicle.id.in_(vehicle_ids))
             else:
-                if user_team_ids:
-                    team_cond = or_(Vehicle.team_id.in_(user_team_ids), Vehicle.team_id.is_(None))
-                    if loc_cond is not None:
-                        team_cond = and_(team_cond, loc_cond)
-                    v_query = v_query.where(or_(Vehicle.id.in_(vehicle_ids), team_cond))
-                elif loc_cond is not None:
-                    v_query = v_query.where(or_(Vehicle.id.in_(vehicle_ids), loc_cond))
+                if loc_cond is not None:
+                    team_cond = and_(team_cond, loc_cond)
+                v_query = v_query.where(or_(Vehicle.id.in_(vehicle_ids), team_cond))
         else:
-            if user_team_ids:
-                v_query = v_query.where(
-                    or_(
-                        Vehicle.team_id.in_(user_team_ids),
-                        Vehicle.team_id.is_(None),
-                    )
-                )
+            v_query = v_query.where(team_cond)
             if loc_cond is not None:
                 v_query = v_query.where(loc_cond)
 
