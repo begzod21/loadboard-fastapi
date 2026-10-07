@@ -76,7 +76,9 @@ class LoadListService:
             self.user.get_vehicle_team_condition(),
         ]
 
-        clauses.append(self.user.get_load_team_condition())
+        load_team_cond = self.user.get_load_team_condition()
+        if load_team_cond is not None:
+            clauses.append(load_team_cond)
 
         is_bid_col = exists(
             select(Bid.id)
@@ -157,7 +159,6 @@ class LoadDetailService:
             .where(
                 Load.id == load_id,
                 Load.is_deleted.is_(False),
-                self.user.get_load_team_condition(),
             )
             .options(
                 joinedload(Load.broker_company),
@@ -306,7 +307,6 @@ class LoadDetailService:
         clauses = [
             Load.id == load_id,
             Load.is_deleted.is_(False),
-            self.user.get_load_team_condition(),
         ]
         filter_conds = filters.conditions()
         if filter_conds:

@@ -113,7 +113,7 @@ class LoadListSchema(BaseModel):
             radius=radius,
             broker_rating=load.broker_company.rating if load.broker_company else None,
             count_day=load.count_day,
-            vehicle_teams=[t.id for t in load.vehicle_teams],
+            vehicle_teams=[t.id for t in (getattr(load, "vehicle_teams", None) or [])],
             broker_company=load.broker_company_id,
             has_driver_in_all_teams=load.has_driver_in_all_teams,
         )

@@ -55,39 +55,29 @@ class CurrentUser:
     def get_load_team_condition(self):
         from sqlalchemy import and_, exists, or_, select
         from app.models.load import Load, load_vehicle_teams
-        from app.models.vehicle import Team
 
-        if self.has_company_teams:
-            allowed_ids = list(self.company_team_ids)
-            if self.personal_team_id:
-                allowed_ids.append(self.personal_team_id)
-            has_team = exists(
-                select(load_vehicle_teams.c.id).where(
-                    load_vehicle_teams.c.load_id == Load.id,
-                    load_vehicle_teams.c.team_id.in_(allowed_ids),
-                )
-            )
-        else:
-            team_conds = [
-                and_(
-                    or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
-                    Team.user_id.is_(None),
-                ),
-            ]
-            if self.personal_team_id:
-                team_conds.append(Team.id == self.personal_team_id)
-            has_team = exists(
-                select(load_vehicle_teams.c.id)
-                .join(Team, Team.id == load_vehicle_teams.c.team_id)
-                .where(
-                    load_vehicle_teams.c.load_id == Load.id,
-                    or_(*team_conds),
-                )
-            )
+        allowed_ids = list(self.company_team_ids)
+        if self.personal_team_id:
+            allowed_ids.append(self.personal_team_id)
 
+        if not allowed_ids:
+            return None
+
+        has_team = exists(
+            select(load_vehicle_teams.c.id).where(
+                load_vehicle_teams.c.load_id == Load.id,
+                load_vehicle_teams.c.team_id.in_(allowed_ids),
+            )
+        )
         return or_(
             Load.has_driver_in_all_teams.is_(True),
-            and_(Load.has_driver_in_all_teams.is_(False), has_team),
+            and_(
+                or_(
+                    Load.has_driver_in_all_teams.is_(False),
+                    Load.has_driver_in_all_teams.is_(None),
+                ),
+                has_team,
+            ),
         )
 
 
