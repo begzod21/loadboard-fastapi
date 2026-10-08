@@ -26,6 +26,8 @@ class VehicleFilter:
     types: str | None = None
     vehicle_type: str | None = None
     vehicle_types: str | None = None
+    company_teams: list[str] | str | None = None
+    personal_teams: list[str] | str | None = None
 
     def conditions(self) -> list[ColumnElement[bool]]:
         clauses: list[ColumnElement[bool]] = []
@@ -105,6 +107,8 @@ def vehicle_filter_params(
     types: str | None = Query(default=None),
     vehicle_type: str | None = Query(default=None),
     vehicle_types: str | None = Query(default=None),
+    company_teams: list[str] | None = Query(default=None),
+    personal_teams: list[str] | None = Query(default=None),
 ) -> VehicleFilter:
     return VehicleFilter(
         id=id,
@@ -120,4 +124,6 @@ def vehicle_filter_params(
         types=types,
         vehicle_type=vehicle_type,
         vehicle_types=vehicle_types,
+        company_teams=company_teams,
+        personal_teams=personal_teams,
     )

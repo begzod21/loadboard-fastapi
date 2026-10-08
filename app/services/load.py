@@ -73,7 +73,10 @@ class LoadListService:
         vehicle_scope = [
             Vehicle.status == 1,
             Vehicle.registration_status == 4,
-            self.user.get_vehicle_team_condition(),
+            self.user.get_vehicle_team_condition(
+                company_teams=filters.company_teams,
+                personal_teams=filters.personal_teams,
+            ),
         ]
 
         load_team_cond = self.user.get_load_team_condition()
@@ -435,7 +438,10 @@ class LoadDetailService:
         )
 
         show_only_selected = _is_truthy(filters.show_only_selected)
-        team_cond = self.user.get_vehicle_team_condition()
+        team_cond = self.user.get_vehicle_team_condition(
+            company_teams=filters.company_teams,
+            personal_teams=filters.personal_teams,
+        )
 
         if mode == "vehicle":
             if show_only_selected:

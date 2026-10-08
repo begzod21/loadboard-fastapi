@@ -44,6 +44,8 @@ class LoadFilter:
     has_matching_vehicles: bool | str = False
     show_only_selected: bool | str = False
     vehicle_team: str | None = None
+    company_teams: list[str] | str | None = None
+    personal_teams: list[str] | str | None = None
     is_driver_bid: str | None = None
     page: int | None = None
     timezone: int | None = None
@@ -90,14 +92,40 @@ class LoadFilter:
         if deliver:
             clauses.append(func.date(Load.delivery_date) == deliver)
 
+        from ..core.security import parse_team_filter
+        from ..models.vehicle import Team
+
+        c_ids, c_all = parse_team_filter(self.company_teams)
+        p_ids, p_all = parse_team_filter(self.personal_teams)
         if self.vehicle_team:
-            teams = [int(t.strip()) for t in self.vehicle_team.split(",") if t.strip().isdigit()]
-            if teams:
+            legacy_ids, _ = parse_team_filter(self.vehicle_team)
+            c_ids.extend(legacy_ids)
+
+        if c_ids or c_all or p_ids or p_all:
+            team_clauses = []
+            if c_ids:
+                team_clauses.append(load_vehicle_teams.c.team_id.in_(c_ids))
+            elif c_all:
+                comp_sub = select(Team.id).where(
+                    or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
+                    Team.user_id.is_(None),
+                )
+                team_clauses.append(load_vehicle_teams.c.team_id.in_(comp_sub))
+
+            if p_ids:
+                team_clauses.append(load_vehicle_teams.c.team_id.in_(p_ids))
+            elif p_all:
+                pers_sub = select(Team.id).where(
+                    or_(Team.is_personal.is_(True), Team.user_id.is_not(None))
+                )
+                team_clauses.append(load_vehicle_teams.c.team_id.in_(pers_sub))
+
+            if team_clauses:
                 clauses.append(
                     exists(
                         select(load_vehicle_teams.c.id).where(
                             load_vehicle_teams.c.load_id == Load.id,
-                            load_vehicle_teams.c.team_id.in_(teams),
+                            or_(*team_clauses),
                         )
                     )
                 )
@@ -145,6 +173,8 @@ def load_filter_params(
     has_matching_vehicles: bool | str = Query(default=False),
     show_only_selected: bool | str = Query(default=False),
     vehicle_team: str | None = Query(default=None),
+    company_teams: list[str] | None = Query(default=None),
+    personal_teams: list[str] | None = Query(default=None),
     is_driver_bid: str | None = Query(default=None),
     page: int | None = Query(default=None),
     timezone: int | None = Query(default=None),
@@ -172,6 +202,8 @@ def load_filter_params(
         has_matching_vehicles=has_matching_vehicles,
         show_only_selected=show_only_selected,
         vehicle_team=vehicle_team,
+        company_teams=company_teams,
+        personal_teams=personal_teams,
         is_driver_bid=is_driver_bid,
         page=page,
         timezone=timezone,

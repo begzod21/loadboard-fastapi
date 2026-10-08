@@ -166,7 +166,7 @@ class VehicleListService:
             if load.pick_up_longitude is not None and load.pick_up_latitude is not None:
                 longitude = float(load.pick_up_longitude)
                 latitude = float(load.pick_up_latitude)
-            driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id)
+            driver_bid_vehicle_ids = await self._driver_bid_vehicle_ids(params.load_id, filters=filters)
 
         if params.bid_id:
             bid = await self.session.get(Bid, params.bid_id)
@@ -205,6 +205,7 @@ class VehicleListService:
                 params,
                 matching_vehicle_type,
                 matching_weight,
+                filters=filters,
             )
 
         return await self._plain_list(filters, params, matching_vehicle_type, matching_weight)
@@ -217,10 +218,15 @@ class VehicleListService:
         matching_weight: int | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
+        team_cond = self.user.get_vehicle_team_condition(
+            company_teams=filters.company_teams if filters else None,
+            personal_teams=filters.personal_teams if filters else None,
+        )
         base = and_(
             Vehicle.status == 1,
             Vehicle.registration_status == 4,
             Vehicle.is_deleted.is_(False),
+            team_cond,
         )
         if params.vehicle_ids and show_only_selected:
             base = and_(base, Vehicle.id.in_(params.vehicle_ids))
@@ -273,6 +279,7 @@ class VehicleListService:
         params: VehicleListParams,
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
+        filters: VehicleFilter | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         effective_radius = 300 if radius == -1 else radius
         load_clause = [DriverBid.load_id == load_id] if load_id else []
@@ -332,7 +339,10 @@ class VehicleListService:
             return cond
 
         def team_filter():
-            cond = self.user.get_vehicle_team_condition()
+            cond = self.user.get_vehicle_team_condition(
+                company_teams=filters.company_teams if filters else None,
+                personal_teams=filters.personal_teams if filters else None,
+            )
             if is_bid and vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
             return cond
@@ -499,7 +509,9 @@ class VehicleListService:
             )
         return count, results
 
-    async def _driver_bid_vehicle_ids(self, load_id: int) -> list[int]:
+    async def _driver_bid_vehicle_ids(
+        self, load_id: int, filters: VehicleFilter | None = None
+    ) -> list[int]:
         stmt = (
             select(DriverBid.vehicle_id)
             .join(Vehicle, Vehicle.id == DriverBid.vehicle_id)
@@ -507,7 +519,10 @@ class VehicleListService:
                 DriverBid.load_id == load_id,
                 DriverBid.vehicle_id.is_not(None),
                 DriverBid.is_deleted.is_(False),
-                self.user.get_vehicle_team_condition(),
+                self.user.get_vehicle_team_condition(
+                    company_teams=filters.company_teams if filters else None,
+                    personal_teams=filters.personal_teams if filters else None,
+                ),
             )
         )
         return [vid for vid in (await self.session.scalars(stmt)).all() if vid is not None]
