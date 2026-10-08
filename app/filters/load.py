@@ -50,7 +50,7 @@ class LoadFilter:
     page: int | None = None
     timezone: int | None = None
 
-    def conditions(self) -> list[ColumnElement[bool]]:
+    def conditions(self, include_teams: bool = True) -> list[ColumnElement[bool]]:
         clauses: list[ColumnElement[bool]] = []
 
         if self.pick_up_at_address:
@@ -101,7 +101,7 @@ class LoadFilter:
             legacy_ids, _ = parse_team_filter(self.vehicle_team)
             c_ids.extend(legacy_ids)
 
-        if c_ids or c_all or p_ids or p_all:
+        if include_teams and (c_ids or c_all or p_ids or p_all):
             team_clauses = []
             if c_ids:
                 team_clauses.append(load_vehicle_teams.c.team_id.in_(c_ids))

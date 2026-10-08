@@ -311,7 +311,7 @@ class LoadDetailService:
             Load.id == load_id,
             Load.is_deleted.is_(False),
         ]
-        filter_conds = filters.conditions()
+        filter_conds = filters.conditions(include_teams=False)
         if filter_conds:
             clauses.extend(filter_conds)
 
@@ -330,6 +330,15 @@ class LoadDetailService:
                 if vid.strip().isdigit()
             ]
 
+        from ..core.security import parse_team_filter
+
+        c_ids, c_all = parse_team_filter(filters.company_teams)
+        p_ids, p_all = parse_team_filter(filters.personal_teams)
+        if filters.vehicle_team:
+            legacy_ids, _ = parse_team_filter(filters.vehicle_team)
+            c_ids.extend(legacy_ids)
+        has_team_filter = bool(c_ids or c_all or p_ids or p_all)
+
         has_vehicle_radius = (
             filters.vehicle_radius is not None
             and filters.vehicle_radius > 0
@@ -338,7 +347,13 @@ class LoadDetailService:
         has_radius = filters.radius is not None and filters.radius > 0
         has_matching = _is_truthy(filters.has_matching_vehicles)
         has_type_filter = bool(filters.vehicle_type)
-        is_filtered = has_vehicle_radius or has_radius or has_matching or has_type_filter
+        is_filtered = (
+            has_vehicle_radius
+            or has_radius
+            or has_matching
+            or has_type_filter
+            or has_team_filter
+        )
 
         if has_vehicle_radius:
             mode = "vehicle"
@@ -364,6 +379,9 @@ class LoadDetailService:
         ):
             mode = "radius"
             radius_miles = float(self.tenant.cargo_distance)
+        elif has_team_filter:
+            mode = "radius"
+            radius_miles = 300.0
         else:
             mode = "none"
             radius_miles = 0.0
@@ -586,7 +604,7 @@ class LoadDetailService:
         elif mode == "vehicle":
             if selected_in_radius_count == 0:
                 return None
-        elif has_radius:
+        elif has_radius or has_team_filter:
             if nearest_vehicles_count == 0:
                 return None
 
