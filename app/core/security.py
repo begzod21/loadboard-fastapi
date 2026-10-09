@@ -116,11 +116,22 @@ class CurrentUser:
                 Team.user_id.is_(None),
             )
             filter_conds.append(Vehicle.team_id.in_(comp_sub))
+        elif p_ids or p_all:
+            if self.company_team_ids:
+                filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
+            else:
+                comp_sub = select(Team.id).where(
+                    or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
+                    Team.user_id.is_(None),
+                )
+                filter_conds.append(Vehicle.team_id.in_(comp_sub))
 
         if p_ids:
             filter_conds.append(Vehicle.team_id.in_(p_ids))
         elif p_all:
             filter_conds.append(Vehicle.team_id.in_(personal_subquery))
+        if self.personal_team_id is not None:
+            filter_conds.append(Vehicle.team_id == self.personal_team_id)
 
         if not filter_conds:
             return base_perm
