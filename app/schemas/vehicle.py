@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models.vehicle import Vehicle
 
@@ -36,7 +36,7 @@ class VehicleSchema(BaseModel):
     owner_name: str | None = None
     owner_company_name: str | None = None
 
-    sky_distance: float | None = None
+    sky_distance: int | None = None
     road_distance: float | None = None
 
     type_name: str | None = None
@@ -80,12 +80,22 @@ class VehicleSchema(BaseModel):
     planned_latitude: decimal.Decimal | None = None
     planned_longitude: decimal.Decimal | None = None
 
+    @field_validator("sky_distance", mode="before")
+    @classmethod
+    def _round_sky_distance(cls, v: object) -> object:
+        if v is not None:
+            try:
+                return round(float(v))
+            except (ValueError, TypeError):
+                return v
+        return v
+
     @classmethod
     def from_vehicle(
         cls,
         vehicle: Vehicle,
         *,
-        sky_distance: float | None = None,
+        sky_distance: float | int | None = None,
         location_type: str | None = None,
         driver_bid_price: float | None = None,
         owner_bid: bool | None = None,
@@ -106,6 +116,10 @@ class VehicleSchema(BaseModel):
             last = owner.company_applicant_last_name or ""
             full = f"{first} {last}".strip()
             owner_name = full or None
+
+        rounded_sky_distance = (
+            round(float(sky_distance)) if sky_distance is not None else None
+        )
 
         return cls.model_construct(
             id=vehicle.id,
@@ -139,7 +153,7 @@ class VehicleSchema(BaseModel):
             owner_phone=owner.company_phone if owner else None,
             owner_name=owner_name,
             owner_company_name=owner.company_name if owner else None,
-            sky_distance=sky_distance,
+            sky_distance=rounded_sky_distance,
             road_distance=road_distance,
             type_name=vehicle.type.name if vehicle.type else (vehicle.types[0].name if getattr(vehicle, "types", None) else None),
             type_names=vehicle.all_type_names,

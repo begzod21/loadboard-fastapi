@@ -496,10 +496,11 @@ class VehicleListService:
             vehicle = by_id.get(row[id_key])
             if vehicle is None:
                 continue
+            sky_dist = row.get("sky_distance")
             results.append(
                 VehicleSchema.from_vehicle(
                     vehicle,
-                    sky_distance=row.get("sky_distance"),
+                    sky_distance=round(float(sky_dist)) if sky_dist is not None else None,
                     location_type=row.get("location_type"),
                     driver_bid_price=row.get("driver_bid_price"),
                     owner_bid=row.get("owner_bid"),
