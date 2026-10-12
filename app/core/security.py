@@ -63,6 +63,7 @@ class CurrentUser:
         self,
         company_teams: list[str] | str | None = None,
         personal_teams: list[str] | str | None = None,
+        include_unassigned: bool = False,
     ):
         from sqlalchemy import and_, or_, select, true
         from app.models.vehicle import Team, Vehicle
@@ -108,6 +109,8 @@ class CurrentUser:
             return base_perm
 
         filter_conds = []
+        if include_unassigned:
+            filter_conds.append(Vehicle.team_id.is_(None))
         if c_ids:
             filter_conds.append(Vehicle.team_id.in_(c_ids))
         elif c_all:

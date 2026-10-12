@@ -221,6 +221,7 @@ class VehicleListService:
         team_cond = self.user.get_vehicle_team_condition(
             company_teams=filters.company_teams if filters else None,
             personal_teams=filters.personal_teams if filters else None,
+            include_unassigned=True,
         )
         base = and_(
             Vehicle.status == 1,
@@ -342,6 +343,7 @@ class VehicleListService:
             cond = self.user.get_vehicle_team_condition(
                 company_teams=filters.company_teams if filters else None,
                 personal_teams=filters.personal_teams if filters else None,
+                include_unassigned=True,
             )
             if is_bid and vehicle_id:
                 cond = or_(cond, Vehicle.id == vehicle_id)
@@ -523,6 +525,7 @@ class VehicleListService:
                 self.user.get_vehicle_team_condition(
                     company_teams=filters.company_teams if filters else None,
                     personal_teams=filters.personal_teams if filters else None,
+                    include_unassigned=True,
                 ),
             )
         )
