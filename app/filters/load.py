@@ -64,8 +64,14 @@ class LoadFilter:
             states = [s for s in self.deliver_to_state.split(",") if s]
             clauses.append(Load.deliver_to_state.in_(states))
         if self.vehicle_type:
-            types = [v.upper() for v in self.vehicle_type.split(",")]
-            clauses.append(Load.vehicle_type.in_(types))
+            raw_types = [v.strip() for v in self.vehicle_type.split(",") if v.strip()]
+            types = [v.upper() for v in raw_types]
+            clauses.append(
+                or_(
+                    Load.vehicle_type.in_(raw_types + types),
+                    func.upper(Load.vehicle_type).in_(types),
+                )
+            )
         if self.distance_type and self.distance_mile is not None:
             if self.distance_type == "gte":
                 clauses.append(Load.miles >= self.distance_mile)

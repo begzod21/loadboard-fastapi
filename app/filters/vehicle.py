@@ -69,12 +69,11 @@ class VehicleFilter:
 
             names = [v.upper() for v in raw_vals if not v.isdigit()]
             if names:
-                from ..services.load import TYPE_SYNONYMS
+                from ..services.load import get_matching_type_names
 
-                expanded_names: set[str] = set(names)
+                expanded_names: set[str] = set()
                 for n in names:
-                    if n in TYPE_SYNONYMS:
-                        expanded_names.update(TYPE_SYNONYMS[n])
+                    expanded_names.update(get_matching_type_names(n))
                 names_list = list(expanded_names)
                 type_clauses.append(
                     Vehicle.type.has(func.upper(VehicleType.name).in_(names_list))

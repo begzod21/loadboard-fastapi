@@ -347,7 +347,7 @@ class LoadDetailService:
         )
         has_radius = filters.radius is not None and filters.radius > 0
         has_matching = _is_truthy(filters.has_matching_vehicles)
-        has_type_filter = bool(filters.vehicle_type or filters.vehicle_types)
+        has_type_filter = bool(filters.vehicle_types)
         is_filtered = (
             has_vehicle_radius
             or has_radius
@@ -475,22 +475,21 @@ class LoadDetailService:
             if loc_cond is not None:
                 v_query = v_query.where(loc_cond)
 
-        filter_type_raw = filters.vehicle_types or filters.vehicle_type
-        load_type_raw = filter_type_raw or load.vehicle_type
-        load_weight = load.weight or 0
+        matching_vehicle_type = load.vehicle_type
+        matching_weight = load.weight or 0
 
-        matching_type_names = get_matching_type_names(load_type_raw)
+        matching_type_names = get_matching_type_names(matching_vehicle_type)
 
         if has_matching:
-            if load_type_raw:
+            if matching_vehicle_type:
                 v_query = v_query.where(
-                    build_matching_vehicle_type_condition(load_type_raw)
+                    build_matching_vehicle_type_condition(matching_vehicle_type)
                 )
-            if load_weight > 0:
-                v_query = v_query.where(Vehicle.payload_lbs >= load_weight)
-        elif filter_type_raw:
+            if matching_weight > 0:
+                v_query = v_query.where(Vehicle.payload_lbs >= matching_weight)
+        if filters.vehicle_types:
             v_query = v_query.where(
-                build_matching_vehicle_type_condition(filter_type_raw)
+                build_matching_vehicle_type_condition(filters.vehicle_types)
             )
 
         vehicle_rows = (await self.session.scalars(v_query)).unique().all()
@@ -549,8 +548,8 @@ class LoadDetailService:
                 continue
 
             v_names_upper = {name.strip().upper() for name in v_type_names if name}
-            type_matches = bool(v_names_upper & matching_type_names) if matching_type_names else False
-            weight_matches = _match_weight(load_weight, v_payload)
+            type_matches = bool(v_names_upper & matching_type_names) if matching_type_names else (True if has_matching else False)
+            weight_matches = _match_weight(matching_weight, v_payload)
             is_matching_vehicle = type_matches and weight_matches
 
             # In has_matching mode, only consider vehicles that match both type and weight
@@ -602,7 +601,7 @@ class LoadDetailService:
             if nearest_vehicles_count == 0:
                 return None
 
-        if has_type_filter and nearest_vehicles_count_by_type == 0:
+        if filters.vehicle_types and nearest_vehicles_count_by_type == 0:
             return None
 
         return LoadDetailInfoSchema(
@@ -660,6 +659,15 @@ TYPE_SYNONYMS: dict[str, set[str]] = {
     "HOT SHOT": {"HS", "HOTSHOT", "HOT SHOT"},
     "PO": {"PO", "POWER ONLY"},
     "POWER ONLY": {"PO", "POWER ONLY"},
+    "SS": {"SS", "SMALL STRAIGHT"},
+    "SMALL STRAIGHT": {"SS", "SMALL STRAIGHT"},
+    "LS": {"LS", "LARGE STRAIGHT"},
+    "LARGE STRAIGHT": {"LS", "LARGE STRAIGHT"},
+    "CV": {"CV", "CARGO VAN"},
+    "CARGO VAN": {"CV", "CARGO VAN"},
+    "SP": {"SP", "SPRINTER", "SPRINTER VAN"},
+    "SPRINTER": {"SP", "SPRINTER", "SPRINTER VAN"},
+    "SPRINTER VAN": {"SP", "SPRINTER", "SPRINTER VAN"},
 }
 
 
