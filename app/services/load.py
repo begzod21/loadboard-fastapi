@@ -76,6 +76,7 @@ class LoadListService:
             self.user.get_vehicle_team_condition(
                 company_teams=filters.company_teams,
                 personal_teams=filters.personal_teams,
+                include_unassigned=True,
             ),
         ]
 
@@ -346,7 +347,7 @@ class LoadDetailService:
         )
         has_radius = filters.radius is not None and filters.radius > 0
         has_matching = _is_truthy(filters.has_matching_vehicles)
-        has_type_filter = bool(filters.vehicle_type)
+        has_type_filter = bool(filters.vehicle_type or filters.vehicle_types)
         is_filtered = (
             has_vehicle_radius
             or has_radius
@@ -379,7 +380,7 @@ class LoadDetailService:
         ):
             mode = "radius"
             radius_miles = float(self.tenant.cargo_distance)
-        elif has_team_filter:
+        elif has_team_filter or has_type_filter:
             mode = "radius"
             radius_miles = 300.0
         else:
@@ -459,6 +460,7 @@ class LoadDetailService:
         team_cond = self.user.get_vehicle_team_condition(
             company_teams=filters.company_teams,
             personal_teams=filters.personal_teams,
+            include_unassigned=True,
         )
 
         if mode == "vehicle":
@@ -473,36 +475,23 @@ class LoadDetailService:
             if loc_cond is not None:
                 v_query = v_query.where(loc_cond)
 
-        load_type_raw = filters.vehicle_type or load.vehicle_type
+        filter_type_raw = filters.vehicle_types or filters.vehicle_type
+        load_type_raw = filter_type_raw or load.vehicle_type
         load_weight = load.weight or 0
 
-        if has_matching and load_weight > 0:
-            if mode == "vehicle" and not show_only_selected:
-                v_query = v_query.where(
-                    or_(
-                        Vehicle.id.in_(vehicle_ids),
-                        Vehicle.payload_lbs >= load_weight,
-                    )
-                )
-            elif mode != "vehicle":
-                v_query = v_query.where(Vehicle.payload_lbs >= load_weight)
+        matching_type_names = get_matching_type_names(load_type_raw)
 
-        if filters.vehicle_types:
-            type_names = [
-                t.strip() for t in filters.vehicle_types.split(",") if t.strip()
-            ]
-            if type_names:
-                matching_names = set(type_names) | {n.upper() for n in type_names}
-                for n in list(matching_names):
-                    if n in TYPE_SYNONYMS:
-                        matching_names.update(TYPE_SYNONYMS[n])
-                names_list = list(matching_names)
+        if has_matching:
+            if load_type_raw:
                 v_query = v_query.where(
-                    or_(
-                        Vehicle.type.has(func.upper(VehicleType.name).in_(names_list)),
-                        Vehicle.types.any(func.upper(VehicleType.name).in_(names_list)),
-                    )
+                    build_matching_vehicle_type_condition(load_type_raw)
                 )
+            if load_weight > 0:
+                v_query = v_query.where(Vehicle.payload_lbs >= load_weight)
+        elif filter_type_raw:
+            v_query = v_query.where(
+                build_matching_vehicle_type_condition(filter_type_raw)
+            )
 
         vehicle_rows = (await self.session.scalars(v_query)).unique().all()
 
@@ -559,30 +548,32 @@ class LoadDetailService:
             if not curr_in_radius and not plan_in_radius:
                 continue
 
-            type_matches = _match_vehicle_type(load_type_raw, v_type_names)
+            v_names_upper = {name.strip().upper() for name in v_type_names if name}
+            type_matches = bool(v_names_upper & matching_type_names) if matching_type_names else False
             weight_matches = _match_weight(load_weight, v_payload)
+            is_matching_vehicle = type_matches and weight_matches
 
-            # In has_matching mode, only consider vehicles that can carry the load's weight
-            if has_matching and not weight_matches:
+            # In has_matching mode, only consider vehicles that match both type and weight
+            if has_matching and not is_matching_vehicle:
                 continue
 
             if curr_in_radius:
                 stats_distances.append(round(d_curr))  # type: ignore[arg-type]
                 current_in_radius_count += 1
-                if type_matches:
+                if is_matching_vehicle:
                     stats_typed_distances.append(round(d_curr))  # type: ignore[arg-type]
                     current_typed_in_radius_count += 1
 
             if plan_in_radius:
                 stats_distances.append(round(d_plan))  # type: ignore[arg-type]
                 planned_in_radius_count += 1
-                if type_matches:
+                if is_matching_vehicle:
                     stats_typed_distances.append(round(d_plan))  # type: ignore[arg-type]
                     planned_typed_in_radius_count += 1
 
             if row.id in selected_id_set and (curr_in_radius or plan_in_radius):
                 selected_in_radius_count += 1
-                if type_matches:
+                if is_matching_vehicle:
                     selected_typed_in_radius_count += 1
 
         nearest_miles = min(stats_distances) if stats_distances else 0
@@ -597,7 +588,10 @@ class LoadDetailService:
 
         # Inclusion criteria when filtered: return 404 (None) if counts are 0
         if has_matching:
-            if nearest_vehicles_count_by_type == 0:
+            nearest_miles = miles_out_by_type
+            nearest_vehicles_count = nearest_vehicles_count_by_type
+
+            if nearest_vehicles_count == 0:
                 return None
             if mode == "vehicle" and selected_typed_in_radius_count == 0:
                 return None
@@ -669,25 +663,26 @@ TYPE_SYNONYMS: dict[str, set[str]] = {
 }
 
 
-def _match_single_vehicle_type(load_type_raw: str, vt_single: str) -> bool:
-    lt = load_type_raw.strip().upper()
-    vt = vt_single.strip().upper()
-    if lt == vt:
-        return True
+def get_matching_type_names(matching_vehicle_type: str | None) -> set[str]:
+    if not matching_vehicle_type:
+        return set()
+    parts = [p.strip().upper() for p in re.split(r"[,/|]", str(matching_vehicle_type)) if p.strip()]
+    matching_names: set[str] = set(parts)
+    for part in parts:
+        if part in TYPE_SYNONYMS:
+            matching_names.update(TYPE_SYNONYMS[part])
+    return matching_names
 
-    load_types = {t.strip().upper() for t in re.split(r"[,/|]", load_type_raw) if t.strip()}
-    v_synonyms = TYPE_SYNONYMS.get(vt, {vt})
 
-    for t in load_types:
-        if t == vt:
-            return True
-        t_synonyms = TYPE_SYNONYMS.get(t, {t})
-        if not t_synonyms.isdisjoint(v_synonyms):
-            return True
-        if len(t) >= 4 and len(vt) >= 4 and (t in vt or vt in t):
-            return True
-
-    return False
+def build_matching_vehicle_type_condition(matching_vehicle_type: str):
+    names_list = list(get_matching_type_names(matching_vehicle_type))
+    if not names_list:
+        from sqlalchemy import false
+        return false()
+    return or_(
+        Vehicle.type.has(func.upper(VehicleType.name).in_(names_list)),
+        Vehicle.types.any(func.upper(VehicleType.name).in_(names_list)),
+    )
 
 
 def _match_vehicle_type(
@@ -696,9 +691,14 @@ def _match_vehicle_type(
 ) -> bool:
     if not load_type_raw or not vehicle_type_raw:
         return False
+    matching_names = get_matching_type_names(load_type_raw)
+    if not matching_names:
+        return False
     if isinstance(vehicle_type_raw, (list, set, tuple)):
-        return any(_match_single_vehicle_type(load_type_raw, vt) for vt in vehicle_type_raw if vt)
-    return _match_single_vehicle_type(load_type_raw, vehicle_type_raw)
+        v_names = {vt.strip().upper() for vt in vehicle_type_raw if vt}
+    else:
+        v_names = {vehicle_type_raw.strip().upper()}
+    return bool(v_names & matching_names)
 
 
 def _match_weight(load_weight: int | float | None, vehicle_payload: float | None) -> bool:

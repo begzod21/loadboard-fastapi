@@ -117,15 +117,12 @@ class VehicleListParams:
 
 
 def build_matching_vehicle_type_condition(matching_vehicle_type: str):
-    import re
-    from .load import TYPE_SYNONYMS
+    from .load import get_matching_type_names
 
-    parts = [p.strip().upper() for p in re.split(r"[,/|]", matching_vehicle_type) if p.strip()]
-    matching_names: set[str] = set(parts)
-    for part in parts:
-        if part in TYPE_SYNONYMS:
-            matching_names.update(TYPE_SYNONYMS[part])
-    names_list = list(matching_names)
+    names_list = list(get_matching_type_names(matching_vehicle_type))
+    if not names_list:
+        from sqlalchemy import false
+        return false()
     return or_(
         Vehicle.type.has(func.upper(VehicleType.name).in_(names_list)),
         Vehicle.types.any(func.upper(VehicleType.name).in_(names_list)),
@@ -337,6 +334,10 @@ class VehicleListService:
                     cond,
                     Vehicle.payload_lbs >= matching_weight,
                 )
+            if filters:
+                f_cond = filters.combined()
+                if f_cond is not None:
+                    cond = and_(cond, f_cond)
             return cond
 
         def team_filter():
