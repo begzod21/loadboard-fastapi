@@ -79,25 +79,13 @@ class CurrentUser:
         c_ids, c_all = parse_team_filter(company_teams)
         p_ids, p_all = parse_team_filter(personal_teams)
 
-        if not (c_ids or c_all or p_ids or p_all):
-            if self.is_superuser and not self.has_company_teams:
-                return true()
-            if self.has_company_teams:
-                allowed_ids = list(self.company_team_ids)
-                if self.personal_team_id:
-                    allowed_ids.append(self.personal_team_id)
-                return or_(
-                    Vehicle.team_id.in_(allowed_ids),
-                    Vehicle.team_id.is_(None),
-                )
-            conds = [
-                Vehicle.team_id.is_(None),
-                Vehicle.team_id.in_(company_subquery),
-            ]
-            if self.personal_team_id:
-                conds.append(Vehicle.team_id == self.personal_team_id)
-            return or_(*conds)
+        # Superuser without company teams and without any filter sees everything
+        if self.is_superuser and not self.has_company_teams and not (c_ids or c_all or p_ids or p_all):
+            return true()
 
+        # Security permission boundary:
+        # A user can access unassigned vehicles, their allowed company teams,
+        # and ANY personal teams (drivers / owner-operators).
         if self.is_superuser:
             if self.has_company_teams:
                 allowed_perm = or_(
@@ -124,6 +112,7 @@ class CurrentUser:
         if include_unassigned:
             filter_conds.append(Vehicle.team_id.is_(None))
 
+        # 1. Company teams:
         if c_ids:
             filter_conds.append(Vehicle.team_id.in_(c_ids))
         elif c_all:
@@ -131,7 +120,19 @@ class CurrentUser:
                 filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
             else:
                 filter_conds.append(Vehicle.team_id.in_(company_subquery))
+        else:
+            # If no explicit company_teams filter is provided:
+            # include user's own company teams (or all company teams if user has no assigned company teams)
+            if self.has_company_teams:
+                filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
+            elif not self.is_superuser:
+                filter_conds.append(Vehicle.team_id.in_(company_subquery))
 
+        # 2. Always include user's own personal team if available:
+        if self.personal_team_id is not None:
+            filter_conds.append(Vehicle.team_id == self.personal_team_id)
+
+        # 3. Plus if additional personal_teams are passed in query params, search by them too:
         if p_ids:
             filter_conds.append(Vehicle.team_id.in_(p_ids))
         elif p_all:
