@@ -247,8 +247,15 @@ class VehicleListService:
                 case((Vehicle.id.in_(params.vehicle_ids), 0), else_=1).asc()
             )
         order.append(Vehicle.id.desc())
+        total_count = (
+            select(func.count())
+            .select_from(Vehicle)
+            .where(where)
+            .correlate(None)
+            .scalar_subquery()
+        )
         stmt = (
-            select(Vehicle, func.count().over().label("_total_count"))
+            select(Vehicle, total_count.label("_total_count"))
             .where(where)
             .order_by(*order)
             .offset((params.page - 1) * params.page_size)
@@ -265,7 +272,7 @@ class VehicleListService:
             count = rows[0][1]
             vehicles = [row[0] for row in rows]
         else:
-            # A window count has no row to carry the total when the page is empty.
+            # The count scalar has no result row to carry its value on an empty page.
             count = await self.session.scalar(
                 select(func.count()).select_from(Vehicle).where(where)
             )
