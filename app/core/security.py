@@ -65,81 +65,82 @@ class CurrentUser:
         personal_teams: list[str] | str | None = None,
         include_unassigned: bool = False,
     ):
-        from sqlalchemy import and_, or_, select, true
+        from sqlalchemy import and_, false, or_, select, true
         from app.models.vehicle import Team, Vehicle
 
         personal_subquery = select(Team.id).where(
             or_(Team.is_personal.is_(True), Team.user_id.is_not(None))
         )
+        company_subquery = select(Team.id).where(
+            or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
+            Team.user_id.is_(None),
+        )
 
-        if self.is_superuser:
+        c_ids, c_all = parse_team_filter(company_teams)
+        p_ids, p_all = parse_team_filter(personal_teams)
+
+        if not (c_ids or c_all or p_ids or p_all):
+            if self.is_superuser and not self.has_company_teams:
+                return true()
             if self.has_company_teams:
-                base_perm = or_(
+                allowed_ids = list(self.company_team_ids)
+                if self.personal_team_id:
+                    allowed_ids.append(self.personal_team_id)
+                return or_(
+                    Vehicle.team_id.in_(allowed_ids),
                     Vehicle.team_id.is_(None),
-                    Vehicle.team_id.in_(self.company_team_ids),
-                    Vehicle.team_id.in_(personal_subquery),
                 )
-            else:
-                base_perm = true()
-        elif self.has_company_teams:
-            allowed_ids = list(self.company_team_ids)
-            if self.personal_team_id:
-                allowed_ids.append(self.personal_team_id)
-            base_perm = or_(
-                Vehicle.team_id.in_(allowed_ids),
-                Vehicle.team_id.is_(None),
-            )
-        else:
-            company_subquery = select(Team.id).where(
-                or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
-                Team.user_id.is_(None),
-            )
             conds = [
                 Vehicle.team_id.is_(None),
                 Vehicle.team_id.in_(company_subquery),
             ]
             if self.personal_team_id:
                 conds.append(Vehicle.team_id == self.personal_team_id)
-            base_perm = or_(*conds)
+            return or_(*conds)
 
-        c_ids, c_all = parse_team_filter(company_teams)
-        p_ids, p_all = parse_team_filter(personal_teams)
-
-        if not (c_ids or c_all or p_ids or p_all):
-            return base_perm
+        if self.is_superuser:
+            if self.has_company_teams:
+                allowed_perm = or_(
+                    Vehicle.team_id.is_(None),
+                    Vehicle.team_id.in_(self.company_team_ids),
+                    Vehicle.team_id.in_(personal_subquery),
+                )
+            else:
+                allowed_perm = true()
+        elif self.has_company_teams:
+            allowed_perm = or_(
+                Vehicle.team_id.is_(None),
+                Vehicle.team_id.in_(self.company_team_ids),
+                Vehicle.team_id.in_(personal_subquery),
+            )
+        else:
+            allowed_perm = or_(
+                Vehicle.team_id.is_(None),
+                Vehicle.team_id.in_(company_subquery),
+                Vehicle.team_id.in_(personal_subquery),
+            )
 
         filter_conds = []
         if include_unassigned:
             filter_conds.append(Vehicle.team_id.is_(None))
+
         if c_ids:
             filter_conds.append(Vehicle.team_id.in_(c_ids))
         elif c_all:
-            comp_sub = select(Team.id).where(
-                or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
-                Team.user_id.is_(None),
-            )
-            filter_conds.append(Vehicle.team_id.in_(comp_sub))
-        elif p_ids or p_all:
-            if self.company_team_ids:
+            if not self.is_superuser and self.has_company_teams:
                 filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
             else:
-                comp_sub = select(Team.id).where(
-                    or_(Team.is_personal.is_(False), Team.is_personal.is_(None)),
-                    Team.user_id.is_(None),
-                )
-                filter_conds.append(Vehicle.team_id.in_(comp_sub))
+                filter_conds.append(Vehicle.team_id.in_(company_subquery))
 
         if p_ids:
             filter_conds.append(Vehicle.team_id.in_(p_ids))
         elif p_all:
             filter_conds.append(Vehicle.team_id.in_(personal_subquery))
-        if self.personal_team_id is not None:
-            filter_conds.append(Vehicle.team_id == self.personal_team_id)
 
         if not filter_conds:
-            return base_perm
+            return false()
 
-        return and_(base_perm, or_(*filter_conds))
+        return and_(allowed_perm, or_(*filter_conds))
 
     def get_load_team_condition(self):
         from sqlalchemy import and_, exists, or_, select
