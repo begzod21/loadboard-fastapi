@@ -116,7 +116,7 @@ class CurrentUser:
         if c_ids:
             filter_conds.append(Vehicle.team_id.in_(c_ids))
         elif c_all:
-            if not self.is_superuser and self.has_company_teams:
+            if self.has_company_teams:
                 filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
             else:
                 filter_conds.append(Vehicle.team_id.in_(company_subquery))
@@ -125,7 +125,7 @@ class CurrentUser:
             # include user's own company teams (or all company teams if user has no assigned company teams)
             if self.has_company_teams:
                 filter_conds.append(Vehicle.team_id.in_(self.company_team_ids))
-            elif not self.is_superuser:
+            else:
                 filter_conds.append(Vehicle.team_id.in_(company_subquery))
 
         # 2. Always include user's own personal team if available:
