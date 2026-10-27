@@ -83,6 +83,15 @@ class CurrentUser:
         if self.is_superuser and not self.has_company_teams and not (c_ids or c_all or p_ids or p_all):
             return true()
 
+        # A user without an assigned team has access across all teams, including
+        # vehicles that are not assigned to a team.
+        if (
+            not self.has_company_teams
+            and self.personal_team_id is None
+            and not (c_ids or c_all or p_ids or p_all)
+        ):
+            return true()
+
         # Security permission boundary:
         # A user can access unassigned vehicles, their allowed company teams,
         # and ANY personal teams (drivers / owner-operators).
