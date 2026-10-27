@@ -27,7 +27,7 @@ from sqlalchemy import (
     union_all,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from ..core.security import CurrentUser
 from ..filters.vehicle import VehicleFilter
@@ -241,27 +241,42 @@ class VehicleListService:
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
 
-        count = await self.session.scalar(
-            select(func.count()).select_from(Vehicle).where(where)
-        )
         order = []
         if params.vehicle_ids and not show_only_selected:
             order.append(
                 case((Vehicle.id.in_(params.vehicle_ids), 0), else_=1).asc()
             )
         order.append(Vehicle.id.desc())
+        total_count = (
+            select(func.count())
+            .select_from(Vehicle)
+            .where(where)
+            .correlate(None)
+            .scalar_subquery()
+        )
         stmt = (
-            select(Vehicle)
+            select(Vehicle, total_count.label("_total_count"))
             .where(where)
             .order_by(*order)
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
             .options(
+                defer(Vehicle.location),
+                defer(Vehicle.planned_location),
                 selectinload(Vehicle.equipment),
                 selectinload(Vehicle.types),
             )
         )
-        vehicles = (await self.session.scalars(stmt)).unique().all()
+        rows = (await self.session.execute(stmt)).unique().all()
+        if rows:
+            count = rows[0][1]
+            vehicles = [row[0] for row in rows]
+        else:
+            # The count scalar has no result row to carry its value on an empty page.
+            count = await self.session.scalar(
+                select(func.count()).select_from(Vehicle).where(where)
+            )
+            vehicles = []
         results = [VehicleSchema.from_vehicle(v) for v in vehicles]
         return int(count or 0), results
 
@@ -487,6 +502,8 @@ class VehicleListService:
                 select(Vehicle)
                 .where(Vehicle.id.in_(vids))
                 .options(
+                    defer(Vehicle.location),
+                    defer(Vehicle.planned_location),
                     selectinload(Vehicle.equipment),
                     selectinload(Vehicle.types),
                 )
