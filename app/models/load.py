@@ -65,6 +65,7 @@ class Load(Base):
     contact_name: Mapped[str | None] = mapped_column(String(255))
     source_name: Mapped[str | None] = mapped_column(String(255))
     vehicle_type: Mapped[str | None] = mapped_column(String(255))
+    load_type: Mapped[str | None] = mapped_column(String(255))
 
     pick_up_at_state: Mapped[str | None] = mapped_column(String(255))
     pick_up_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))

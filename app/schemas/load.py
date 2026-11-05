@@ -188,6 +188,7 @@ class LoadDetailSchema(BaseModel):
     dims: object | None = None
     stackable: bool | None = None
     hazardous: bool | None = None
+    load_type: str | None = None
     fast_load: bool | None = None
     dock_level: bool | None = None
     suggested_truck: str | None = None
@@ -271,6 +272,7 @@ class LoadDetailSchema(BaseModel):
             dims=load.dims,
             stackable=load.stackable,
             hazardous=load.hazardous,
+            load_type=load.load_type,
             fast_load=load.fast_load,
             dock_level=load.dock_level,
             suggested_truck=load.suggested_truck,
