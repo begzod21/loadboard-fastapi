@@ -11,6 +11,7 @@ Reproduces the Django behaviour:
 """
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field
 from math import cos, radians
 
@@ -202,6 +203,7 @@ class VehicleListService:
                 params,
                 matching_vehicle_type,
                 matching_weight,
+                load.pick_up_date if load is not None else None,
                 filters=filters,
             )
 
@@ -292,6 +294,7 @@ class VehicleListService:
         params: VehicleListParams,
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
+        pickup_date: datetime.datetime | None = None,
         filters: VehicleFilter | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         effective_radius = 300 if radius == -1 else radius
@@ -385,7 +388,10 @@ class VehicleListService:
                 literal("current").label("location_type"),
                 is_requested.label("is_requested_vehicle"),
                 *common_cols,
-            ).where(base_filter())
+            ).where(
+                base_filter(),
+                Vehicle.is_current_location_active.is_(True),
+            )
             tf = team_filter()
             if tf is not None:
                 sel = sel.where(tf)
@@ -439,21 +445,28 @@ class VehicleListService:
             literal("current").label("location_type"),
             literal(None).label("is_requested_vehicle"),
             *common_cols,
-        ).where(base_filter())
+        ).where(
+            base_filter(),
+            Vehicle.is_current_location_active.is_(True),
+        )
 
+        planned_conditions = [
+            base_filter(),
+            Vehicle.is_planned_location_active.is_(True),
+            Vehicle.planned_latitude.is_not(None),
+            Vehicle.planned_longitude.is_not(None),
+            Vehicle.planned_address.is_not(None),
+            Vehicle.planned_address != "",
+        ]
+        if pickup_date is not None:
+            planned_conditions.append(Vehicle.planned_date_time <= pickup_date)
         pln = select(
             Vehicle.id.label("vid"),
             sky_pln.label("sky_distance"),
             literal("planned").label("location_type"),
             literal(None).label("is_requested_vehicle"),
             *common_cols,
-        ).where(
-            base_filter(),
-            Vehicle.planned_latitude.is_not(None),
-            Vehicle.planned_longitude.is_not(None),
-            Vehicle.planned_address.is_not(None),
-            Vehicle.planned_address != "",
-        )
+        ).where(*planned_conditions)
 
         tf = team_filter()
         if tf is not None:

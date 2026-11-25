@@ -103,6 +103,8 @@ class Vehicle(Base):
     registration_status: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[int] = mapped_column(Integer, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_current_location_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_planned_location_active: Mapped[bool] = mapped_column(Boolean, default=False)
 
     owner_company_id: Mapped[int | None] = mapped_column(
         ForeignKey("owner_ownercompany.id")
