@@ -136,7 +136,10 @@ class Vehicle(Base):
     planned_latitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
     planned_longitude: Mapped[decimal.Decimal | None] = mapped_column(Numeric(9, 6))
     planned_date_time: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
-    
+    updated_planned_location_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     location: Mapped[object | None] = mapped_column(
         Geography(
             geometry_type="POINT",

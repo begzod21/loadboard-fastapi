@@ -79,6 +79,7 @@ class VehicleSchema(BaseModel):
     longitude: decimal.Decimal | None = None
     planned_latitude: decimal.Decimal | None = None
     planned_longitude: decimal.Decimal | None = None
+    updated_planned_location_at: datetime.datetime | None = None
 
     @field_validator("sky_distance", mode="before")
     @classmethod
@@ -188,6 +189,7 @@ class VehicleSchema(BaseModel):
             longitude=vehicle.longitude,
             planned_latitude=vehicle.planned_latitude,
             planned_longitude=vehicle.planned_longitude,
+            updated_planned_location_at=vehicle.updated_planned_location_at,
         )
 
 
