@@ -130,6 +130,14 @@ def build_matching_vehicle_type_condition(matching_vehicle_type: str):
     )
 
 
+def _pickup_date_condition(pickup_date: datetime.datetime):
+    """Vehicles without a planned date are not restricted by the load's pickup date."""
+    return or_(
+        Vehicle.planned_date_time.is_(None),
+        Vehicle.planned_date_time <= pickup_date,
+    )
+
+
 class VehicleListService:
     def __init__(
         self,
@@ -207,7 +215,13 @@ class VehicleListService:
                 filters=filters,
             )
 
-        return await self._plain_list(filters, params, matching_vehicle_type, matching_weight)
+        return await self._plain_list(
+            filters,
+            params,
+            matching_vehicle_type,
+            matching_weight,
+            load.pick_up_date if load is not None else None,
+        )
 
     async def _plain_list(
         self,
@@ -215,6 +229,7 @@ class VehicleListService:
         params: VehicleListParams,
         matching_vehicle_type: str | None = None,
         matching_weight: int | None = None,
+        pickup_date: datetime.datetime | None = None,
     ) -> tuple[int, list[VehicleSchema]]:
         show_only_selected = params.show_only_selected and bool(params.vehicle_ids)
         team_cond = self.user.get_vehicle_team_condition(
@@ -240,6 +255,8 @@ class VehicleListService:
                 base,
                 Vehicle.payload_lbs >= matching_weight,
             )
+        if pickup_date is not None:
+            base = and_(base, _pickup_date_condition(pickup_date))
         combined = filters.combined()
         where = and_(base, combined) if combined is not None else base
 
@@ -459,7 +476,7 @@ class VehicleListService:
             Vehicle.planned_address != "",
         ]
         if pickup_date is not None:
-            planned_conditions.append(Vehicle.planned_date_time <= pickup_date)
+            planned_conditions.append(_pickup_date_condition(pickup_date))
         pln = select(
             Vehicle.id.label("vid"),
             sky_pln.label("sky_distance"),
